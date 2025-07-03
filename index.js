@@ -372,39 +372,55 @@ client.on(Events.GuildCreate, async (guild) => {
             console.log(`RaidGuard_AuAuロールを作成しました`);
         }
 
-        // 全チャンネルに対してロールの権限を設定
-        guild.channels.cache.forEach(async (channel) => {
-            if (
-                channel.type === ChannelType.GuildText ||
-                channel.type === ChannelType.GuildVoice
-            ) {
-                try {
-                    // Muted_AuAuロールの権限設定
-                    await channel.permissionOverwrites.create(muteRole, {
-                        SendMessages: false,
-                        Speak: false,
-                        AddReactions: false,
-                        SendMessagesInThreads: false,
-                        CreatePublicThreads: false,
-                        CreatePrivateThreads: false,
-                    });
+        // 権限設定のために少し待機
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
-                    // RaidGuard_AuAuロールの権限設定
-                    await channel.permissionOverwrites.create(raidGuardRole, {
-                        SendMessages: false,
-                        AddReactions: false,
-                        SendMessagesInThreads: false,
-                        CreatePublicThreads: false,
-                        CreatePrivateThreads: false,
-                    });
-                } catch (error) {
-                    console.error(
-                        `チャンネル ${channel.name} の権限設定に失敗:`,
-                        error,
-                    );
+        // 全チャンネルに対してロールの権限を設定
+        const channels = guild.channels.cache.filter(
+            channel => channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildVoice
+        );
+
+        for (const [, channel] of channels) {
+            try {
+                // Botがチャンネルの権限を管理できるかチェック
+                const botMember = guild.members.cache.get(client.user.id);
+                if (!channel.permissionsFor(botMember).has(['ManageRoles', 'ManageChannels'])) {
+                    console.log(`チャンネル ${channel.name} の権限設定をスキップ: 権限不足`);
+                    continue;
+                }
+
+                // Muted_AuAuロールの権限設定
+                await channel.permissionOverwrites.create(muteRole, {
+                    SendMessages: false,
+                    Speak: false,
+                    AddReactions: false,
+                    SendMessagesInThreads: false,
+                    CreatePublicThreads: false,
+                    CreatePrivateThreads: false,
+                });
+
+                // RaidGuard_AuAuロールの権限設定
+                await channel.permissionOverwrites.create(raidGuardRole, {
+                    SendMessages: false,
+                    AddReactions: false,
+                    SendMessagesInThreads: false,
+                    CreatePublicThreads: false,
+                    CreatePrivateThreads: false,
+                });
+
+                console.log(`チャンネル ${channel.name} の権限設定完了`);
+                
+                // レート制限を避けるため少し待機
+                await new Promise(resolve => setTimeout(resolve, 200));
+                
+            } catch (error) {
+                if (error.code === 50001 || error.code === 50013) {
+                    console.log(`チャンネル ${channel.name} の権限設定をスキップ: ${error.message}`);
+                } else {
+                    console.error(`チャンネル ${channel.name} の権限設定に失敗:`, error);
                 }
             }
-        });
+        }
 
         // ウェルカムメッセージを送信
         await logChannel.send({
