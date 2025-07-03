@@ -1,0 +1,13 @@
+{
+  "name": "auaubot",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node main.js",
+    "deploy-commands": "node deploy-commands.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.21.0",
+    "dotenv": "^17.0.0",
+    "string-similarity": "^4.0.4"
+  }
+}
