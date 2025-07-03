@@ -188,7 +188,7 @@ async function checkForRaid(guild) {
 async function activateRaidMode(guild) {
     try {
         const guildId = guild.id;
-        
+
         // 既にレイドモードが有効になっているかチェック
         if (raidModeStatus.get(guildId)) {
             console.log(`レイドモードは既に有効です - サーバー: ${guild.name}`);
@@ -319,12 +319,14 @@ client.on("ready", () => {
 client.on(Events.GuildCreate, async (guild) => {
     try {
         console.log(`新しいサーバーに参加しました: ${guild.name}`);
-        
+
         // auau-logチャンネルを作成
         let logChannel = guild.channels.cache.find(
-            (channel) => channel.name === "auau-log" && channel.type === ChannelType.GuildText
+            (channel) =>
+                channel.name === "auau-log" &&
+                channel.type === ChannelType.GuildText,
         );
-        
+
         if (!logChannel) {
             logChannel = await guild.channels.create({
                 name: "auau-log",
@@ -345,7 +347,9 @@ client.on(Events.GuildCreate, async (guild) => {
         }
 
         // Muted_AuAuロールを作成
-        let muteRole = guild.roles.cache.find(role => role.name === "Muted_AuAu");
+        let muteRole = guild.roles.cache.find(
+            (role) => role.name === "Muted_AuAu",
+        );
         if (!muteRole) {
             muteRole = await guild.roles.create({
                 name: "Muted_AuAu",
@@ -356,7 +360,9 @@ client.on(Events.GuildCreate, async (guild) => {
         }
 
         // RaidGuard_AuAuロールを作成
-        let raidGuardRole = guild.roles.cache.find(role => role.name === "RaidGuard_AuAu");
+        let raidGuardRole = guild.roles.cache.find(
+            (role) => role.name === "RaidGuard_AuAu",
+        );
         if (!raidGuardRole) {
             raidGuardRole = await guild.roles.create({
                 name: "RaidGuard_AuAu",
@@ -368,7 +374,10 @@ client.on(Events.GuildCreate, async (guild) => {
 
         // 全チャンネルに対してロールの権限を設定
         guild.channels.cache.forEach(async (channel) => {
-            if (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildVoice) {
+            if (
+                channel.type === ChannelType.GuildText ||
+                channel.type === ChannelType.GuildVoice
+            ) {
                 try {
                     // Muted_AuAuロールの権限設定
                     await channel.permissionOverwrites.create(muteRole, {
@@ -379,7 +388,7 @@ client.on(Events.GuildCreate, async (guild) => {
                         CreatePublicThreads: false,
                         CreatePrivateThreads: false,
                     });
-                    
+
                     // RaidGuard_AuAuロールの権限設定
                     await channel.permissionOverwrites.create(raidGuardRole, {
                         SendMessages: false,
@@ -389,23 +398,29 @@ client.on(Events.GuildCreate, async (guild) => {
                         CreatePrivateThreads: false,
                     });
                 } catch (error) {
-                    console.error(`チャンネル ${channel.name} の権限設定に失敗:`, error);
+                    console.error(
+                        `チャンネル ${channel.name} の権限設定に失敗:`,
+                        error,
+                    );
                 }
             }
         });
 
         // ウェルカムメッセージを送信
         await logChannel.send({
-            content: `やあ！屋上あんだけど…焼いてかない...？\n` +
-                    `Botの導入ありがとうございます、あうあうBotのロールの順位をなるべく高くして、\n` +
-                    `その下にRaidGuard_AuAuロール、Muted_AuAuロールを設置してください`,
-            files: ["https://i.imgur.com/AuAuGuid.gif"]
+            content:
+                `やあ！屋上あんだけど…焼いてかない...？\n` +
+                `Botの導入ありがとうございます、あうあうBotのロールの順位をなるべく高くして、\n` +
+                `その下にRaidGuard_AuAuロール、Muted_AuAuロールを設置してください`,
+            files: ["https://i.imgur.com/hoaV8id.gif"],
         });
-        
+
         console.log(`${guild.name} への初期化が完了しました`);
-        
     } catch (error) {
-        console.error("サーバー参加時の初期化処理でエラーが発生しました:", error);
+        console.error(
+            "サーバー参加時の初期化処理でエラーが発生しました:",
+            error,
+        );
     }
 });
 
