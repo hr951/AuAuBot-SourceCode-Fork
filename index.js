@@ -315,6 +315,100 @@ client.on("ready", () => {
     console.log(`${client.user.tag}でログインしました!!`);
 });
 
+// Botがサーバーに参加したときのイベント
+client.on(Events.GuildCreate, async (guild) => {
+    try {
+        console.log(`新しいサーバーに参加しました: ${guild.name}`);
+        
+        // auau-logチャンネルを作成
+        let logChannel = guild.channels.cache.find(
+            (channel) => channel.name === "auau-log" && channel.type === ChannelType.GuildText
+        );
+        
+        if (!logChannel) {
+            logChannel = await guild.channels.create({
+                name: "auau-log",
+                type: ChannelType.GuildText,
+                permissionOverwrites: [
+                    {
+                        id: guild.roles.everyone,
+                        deny: ["ViewChannel"],
+                    },
+                    {
+                        id: client.user.id,
+                        allow: ["ViewChannel", "SendMessages"],
+                    },
+                ],
+                reason: "あうあうBot初期化 - ログチャンネル作成",
+            });
+            console.log(`auau-logチャンネルを作成しました`);
+        }
+
+        // Muted_AuAuロールを作成
+        let muteRole = guild.roles.cache.find(role => role.name === "Muted_AuAu");
+        if (!muteRole) {
+            muteRole = await guild.roles.create({
+                name: "Muted_AuAu",
+                color: "#808080",
+                reason: "あうあうBot初期化 - ミュートロール作成",
+            });
+            console.log(`Muted_AuAuロールを作成しました`);
+        }
+
+        // RaidGuard_AuAuロールを作成
+        let raidGuardRole = guild.roles.cache.find(role => role.name === "RaidGuard_AuAu");
+        if (!raidGuardRole) {
+            raidGuardRole = await guild.roles.create({
+                name: "RaidGuard_AuAu",
+                color: "#FF0000",
+                reason: "あうあうBot初期化 - レイドガードロール作成",
+            });
+            console.log(`RaidGuard_AuAuロールを作成しました`);
+        }
+
+        // 全チャンネルに対してロールの権限を設定
+        guild.channels.cache.forEach(async (channel) => {
+            if (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildVoice) {
+                try {
+                    // Muted_AuAuロールの権限設定
+                    await channel.permissionOverwrites.create(muteRole, {
+                        SendMessages: false,
+                        Speak: false,
+                        AddReactions: false,
+                        SendMessagesInThreads: false,
+                        CreatePublicThreads: false,
+                        CreatePrivateThreads: false,
+                    });
+                    
+                    // RaidGuard_AuAuロールの権限設定
+                    await channel.permissionOverwrites.create(raidGuardRole, {
+                        SendMessages: false,
+                        AddReactions: false,
+                        SendMessagesInThreads: false,
+                        CreatePublicThreads: false,
+                        CreatePrivateThreads: false,
+                    });
+                } catch (error) {
+                    console.error(`チャンネル ${channel.name} の権限設定に失敗:`, error);
+                }
+            }
+        });
+
+        // ウェルカムメッセージを送信
+        await logChannel.send({
+            content: `やあ！屋上あんだけど…焼いてかない...？\n` +
+                    `Botの導入ありがとうございます、あうあうBotのロールの順位をなるべく高くして、\n` +
+                    `その下にRaidGuard_AuAuロール、Muted_AuAuロールを設置してください`,
+            files: ["https://i.imgur.com/AuAuGuid.gif"]
+        });
+        
+        console.log(`${guild.name} への初期化が完了しました`);
+        
+    } catch (error) {
+        console.error("サーバー参加時の初期化処理でエラーが発生しました:", error);
+    }
+});
+
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
     const command = interaction.client.commands.get(interaction.commandName);
