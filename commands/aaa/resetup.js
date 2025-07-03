@@ -14,7 +14,7 @@ module.exports = {
 
         try {
             const guild = interaction.guild;
-            
+
             // Botの権限をチェック
             const botMember = guild.members.cache.get(interaction.client.user.id);
             if (!botMember.permissions.has(['ManageRoles', 'ManageChannels'])) {
@@ -129,6 +129,23 @@ module.exports = {
                         SendMessagesInThreads: false,
                         CreatePublicThreads: false,
                         CreatePrivateThreads: false,
+                    });
+
+                    // あうあうBot自体の権限設定
+                    await channel.permissionOverwrites.create(interaction.client.user.id, {
+                        ViewChannel: true,
+                        SendMessages: true,
+                        ManageMessages: true,
+                        ManageRoles: true,
+                        ManageChannels: true,
+                        AddReactions: true,
+                        ReadMessageHistory: true,
+                        UseExternalEmojis: true,
+                        Connect: true,
+                        Speak: true,
+                        MuteMembers: true,
+                        DeafenMembers: true,
+                        MoveMembers: true,
                     });
 
                     console.log(`チャンネル ${channel.name} の権限設定完了`);
