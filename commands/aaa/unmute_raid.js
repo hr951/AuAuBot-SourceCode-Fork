@@ -43,6 +43,11 @@ module.exports = {
         }
       }
 
+      // レイドモード状態をリセット
+      if (global.resetRaidMode) {
+        global.resetRaidMode(interaction.guild.id);
+      }
+      
       await interaction.editReply(
         `✅ レイドミュートを解除しました！\n` +
         `成功: ${successCount}人\n` +

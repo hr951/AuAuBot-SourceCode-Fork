@@ -18,6 +18,16 @@ const NORMAL_PERIOD_DAYS = 7; // 過去7日間の平均を「通常」として�
 const joinHistory = new Map(); // サーバーごとの参加履歴
 
 const userMessageData = new Map(); // Mapを使用してユーザーごとのデータを保存
+const raidModeStatus = new Map(); // サーバーごとのレイドモード状態を追跡
+
+// レイドモード状態をリセットする関数
+function resetRaidMode(guildId) {
+    raidModeStatus.delete(guildId);
+    console.log(`レイドモード状態をリセットしました - Guild ID: ${guildId}`);
+}
+
+// グローバルでアクセスできるようにする
+global.resetRaidMode = resetRaidMode;
 
 const {
     Client,
@@ -177,10 +187,20 @@ async function checkForRaid(guild) {
 // レイドモード有効化関数
 async function activateRaidMode(guild) {
     try {
+        const guildId = guild.id;
+        
+        // 既にレイドモードが有効になっているかチェック
+        if (raidModeStatus.get(guildId)) {
+            console.log(`レイドモードは既に有効です - サーバー: ${guild.name}`);
+            return;
+        }
+
         // RaidGuard_AuAuロールを取得または作成
         let raidGuardRole = guild.roles.cache.find(
             (role) => role.name === "RaidGuard_AuAu",
         );
+
+        const isNewRaidMode = !raidGuardRole;
 
         if (!raidGuardRole) {
             raidGuardRole = await guild.roles.create({
@@ -217,6 +237,9 @@ async function activateRaidMode(guild) {
             });
         }
 
+        // レイドモードを有効状態に設定
+        raidModeStatus.set(guildId, true);
+
         // 新規参加者にロールを付与（過去5分間に参加したメンバー）
         const now = Date.now();
         const recentJoinThreshold = now - RAID_DETECTION_WINDOW;
@@ -242,44 +265,47 @@ async function activateRaidMode(guild) {
             }
         }
 
-        // ログチャンネルを見つけるか作成する
-        let logChannel = guild.channels.cache.find(
-            (channel) =>
-                channel.name === "auau-log" &&
-                channel.type === ChannelType.GuildText,
-        );
+        // 新しいレイドモードの場合のみログメッセージを送信
+        if (isNewRaidMode) {
+            // ログチャンネルを見つけるか作成する
+            let logChannel = guild.channels.cache.find(
+                (channel) =>
+                    channel.name === "auau-log" &&
+                    channel.type === ChannelType.GuildText,
+            );
 
-        if (!logChannel) {
-            logChannel = await guild.channels.create({
-                name: "auau-log",
-                type: ChannelType.GuildText,
-                permissionOverwrites: [
-                    {
-                        id: guild.roles.everyone,
-                        deny: ["ViewChannel"],
-                    },
-                    {
-                        id: client.user.id,
-                        allow: ["ViewChannel", "SendMessages"],
-                    },
-                ],
-                reason: "レイド対策ログ用チャンネルを作成",
-            });
-            console.log(`auau-log チャンネルを作成しました。`);
+            if (!logChannel) {
+                logChannel = await guild.channels.create({
+                    name: "auau-log",
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        {
+                            id: guild.roles.everyone,
+                            deny: ["ViewChannel"],
+                        },
+                        {
+                            id: client.user.id,
+                            allow: ["ViewChannel", "SendMessages"],
+                        },
+                    ],
+                    reason: "レイド対策ログ用チャンネルを作成",
+                });
+                console.log(`auau-log チャンネルを作成しました。`);
+            }
+
+            // ログメッセージを送信
+            await logChannel.send(
+                `⚠️ **異常な参加ペースを検知しました！**\n` +
+                    `現在、いつもより明らかに早いスピードで新規メンバーが参加しています。\n` +
+                    `あなたのサーバーが **Raidの標的**になっている可能性があります。\n` +
+                    `🛡️ セキュリティモードを自動で有効化し、**新規メンバー全員に \`RaidGuard_AuAu\` ロール**を付与しました。\n` +
+                    `**対応方法：**\n` +
+                    `- 様子を見て問題が落ち着いたら \`/unmute_raid\` コマンドを実行してください。\n` +
+                    `- それまでは新規参加者を**慎重に監視**してください。\n` +
+                    `- ❇️落ち着くことも重要です。 冷静な判断を下すためにアイスティーを飲みながら警戒するのをおすすめします。\n` +
+                    `*（by あうあうBot）*`,
+            );
         }
-
-        // ログメッセージを送信
-        await logChannel.send(
-            `⚠️ **異常な参加ペースを検知しました！**\n` +
-                `現在、いつもより明らかに早いスピードで新規メンバーが参加しています。\n` +
-                `あなたのサーバーが **Raidの標的**になっている可能性があります。\n` +
-                `🛡️ セキュリティモードを自動で有効化し、**新規メンバー全員に \`RaidGuard_AuAu\` ロール**を付与しました。\n` +
-                `**対応方法：**\n` +
-                `- 様子を見て問題が落ち着いたら \`/unmute_raid\` コマンドを実行してください。\n` +
-                `- それまでは新規参加者を**慎重に監視**してください。\n` +
-                `- ❇️落ち着くことも重要です。 冷静な判断を下すためにアイスティーを飲みながら警戒するのをおすすめします。\n` +
-                `*（by あうあうBot）*`,
-        );
     } catch (error) {
         console.error("レイドモード有効化中にエラーが発生しました:", error);
     }
