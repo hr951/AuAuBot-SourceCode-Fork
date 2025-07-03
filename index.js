@@ -373,19 +373,27 @@ client.on(Events.GuildCreate, async (guild) => {
         }
 
         // 権限設定のために少し待機
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
 
         // 全チャンネルに対してロールの権限を設定
         const channels = guild.channels.cache.filter(
-            channel => channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildVoice
+            (channel) =>
+                channel.type === ChannelType.GuildText ||
+                channel.type === ChannelType.GuildVoice,
         );
 
         for (const [, channel] of channels) {
             try {
                 // Botがチャンネルの権限を管理できるかチェック
                 const botMember = guild.members.cache.get(client.user.id);
-                if (!channel.permissionsFor(botMember).has(['ManageRoles', 'ManageChannels'])) {
-                    console.log(`チャンネル ${channel.name} の権限設定をスキップ: 権限不足`);
+                if (
+                    !channel
+                        .permissionsFor(botMember)
+                        .has(["ManageRoles", "ManageChannels"])
+                ) {
+                    console.log(
+                        `チャンネル ${channel.name} の権限設定をスキップ: 権限不足`,
+                    );
                     continue;
                 }
 
@@ -409,15 +417,19 @@ client.on(Events.GuildCreate, async (guild) => {
                 });
 
                 console.log(`チャンネル ${channel.name} の権限設定完了`);
-                
+
                 // レート制限を避けるため少し待機
-                await new Promise(resolve => setTimeout(resolve, 200));
-                
+                await new Promise((resolve) => setTimeout(resolve, 200));
             } catch (error) {
                 if (error.code === 50001 || error.code === 50013) {
-                    console.log(`チャンネル ${channel.name} の権限設定をスキップ: ${error.message}`);
+                    console.log(
+                        `チャンネル ${channel.name} の権限設定をスキップ: ${error.message}`,
+                    );
                 } else {
-                    console.error(`チャンネル ${channel.name} の権限設定に失敗:`, error);
+                    console.error(
+                        `チャンネル ${channel.name} の権限設定に失敗:`,
+                        error,
+                    );
                 }
             }
         }
@@ -427,7 +439,8 @@ client.on(Events.GuildCreate, async (guild) => {
             content:
                 `やあ！屋上あんだけど…焼いてかない...？\n` +
                 `Botの導入ありがとうございます、あうあうBotのロールの順位をなるべく高くして、\n` +
-                `その下にRaidGuard_AuAuロール、Muted_AuAuロールを設置してください`,
+                `その下にRaidGuard_AuAuロール、Muted_AuAuロールを設置してください。\n` +
+                `現在はおそらく権限の問題でチャンネルにロールが付いてないと思うので、上を行ってから/resetupコマンドの実行をお願いします`,
             files: ["https://i.imgur.com/hoaV8id.gif"],
         });
 
