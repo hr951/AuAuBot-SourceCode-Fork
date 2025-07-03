@@ -14,6 +14,19 @@ module.exports = {
 
         try {
             const guild = interaction.guild;
+            
+            // Botの権限をチェック
+            const botMember = guild.members.cache.get(interaction.client.user.id);
+            if (!botMember.permissions.has(['ManageRoles', 'ManageChannels'])) {
+                await interaction.editReply(
+                    `❌ **権限不足エラー**\n` +
+                    `あうあうBotに以下の権限が必要です：\n` +
+                    `• ロールの管理\n` +
+                    `• チャンネルの管理\n\n` +
+                    `サーバー設定でBotのロール順位を上げてから再実行してください。`
+                );
+                return;
+            }
 
             // auau-logチャンネルを作成または確認
             let logChannel = guild.channels.cache.find(
