@@ -1,5 +1,8 @@
-
-const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require("discord.js");
+const {
+    SlashCommandBuilder,
+    PermissionFlagsBits,
+    ChannelType,
+} = require("discord.js");
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -81,7 +84,9 @@ module.exports = {
             for (const [, channel] of channels) {
                 try {
                     // Botがチャンネルの権限を管理できるかチェック
-                    const botMember = guild.members.cache.get(interaction.client.user.id);
+                    const botMember = guild.members.cache.get(
+                        interaction.client.user.id,
+                    );
                     if (
                         !channel
                             .permissionsFor(botMember)
@@ -136,25 +141,24 @@ module.exports = {
 
             await interaction.editReply(
                 `✅ **セットアップが完了しました！**\n\n` +
-                `📝 **作成・確認されたもの:**\n` +
-                `• auau-logチャンネル\n` +
-                `• Muted_AuAuロール\n` +
-                `• RaidGuard_AuAuロール\n\n` +
-                `🔧 **チャンネル権限設定結果:**\n` +
-                `• 成功: ${successCount}チャンネル\n` +
-                `• スキップ: ${skipCount}チャンネル\n` +
-                `• エラー: ${errorCount}チャンネル\n\n` +
-                `${skipCount > 0 ? "⚠️ 一部のチャンネルで権限不足のためスキップされました。Botのロール順位を確認してください。" : ""}`,
+                    `📝 **作成・確認されたもの:**\n` +
+                    `• auau-logチャンネル\n` +
+                    `• Muted_AuAuロール\n` +
+                    `• RaidGuard_AuAuロール\n\n` +
+                    `🔧 **チャンネル権限設定結果:**\n` +
+                    `• 成功: ${successCount}チャンネル\n` +
+                    `• スキップ: ${skipCount}チャンネル\n` +
+                    `• エラー: ${errorCount}チャンネル\n\n` +
+                    `${skipCount > 0 ? "⚠️ 一部のチャンネルで権限不足のためスキップされました。Botのロール順位を確認してください。" : ""}`,
             );
 
             // ログチャンネルにも通知を送信
             await logChannel.send(
                 `🔄 **セットアップが再実行されました**\n` +
-                `実行者: ${interaction.user.tag}\n` +
-                `時刻: ${new Date().toLocaleString('ja-JP')}\n` +
-                `結果: 成功 ${successCount}, スキップ ${skipCount}, エラー ${errorCount}`,
+                    `実行者: ${interaction.user.tag}\n` +
+                    `時刻: ${new Date().toLocaleString("ja-JP")}\n` +
+                    `結果: 成功 ${successCount}, スキップ ${skipCount}, エラー ${errorCount}`,
             );
-
         } catch (error) {
             console.error("resetupコマンドでエラーが発生しました:", error);
             await interaction.editReply(
