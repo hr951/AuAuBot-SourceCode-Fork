@@ -26,8 +26,12 @@ function resetRaidMode(guildId) {
     console.log(`レイドモード状態をリセットしました - Guild ID: ${guildId}`);
 }
 
+// スパム検知除外ロールのマップ
+const spamExclusionRoles = new Map(); // サーバーID -> Set(ロールID)
+
 // グローバルでアクセスできるようにする
 global.resetRaidMode = resetRaidMode;
+global.spamExclusionRoles = spamExclusionRoles;
 
 const {
     Client,
@@ -645,6 +649,23 @@ client.on(Events.ChannelCreate, async (channel) => {
 client.on("messageCreate", async (msg) => {
     if (msg.author.bot) return;
 
+    // スパム検知除外ロールをチェック
+    const guildId = msg.guild.id;
+    const exclusionRoles = spamExclusionRoles.get(guildId);
+    
+    if (exclusionRoles && exclusionRoles.size > 0) {
+        const member = msg.guild.members.cache.get(msg.author.id);
+        if (member) {
+            const hasExclusionRole = member.roles.cache.some(role => exclusionRoles.has(role.id));
+            if (hasExclusionRole) {
+                console.log(`スパム検知をスキップ: ${msg.author.username} (除外ロール所持)`);
+                // スパム検知をスキップして、他の処理のみ実行
+                await processNonSpamMessage(msg);
+                return;
+            }
+        }
+    }
+
     const userId = msg.author.id;
     const now = Date.now();
 
@@ -756,6 +777,13 @@ client.on("messageCreate", async (msg) => {
         }
     }
 
+    // スパム検知を通過した場合、他の処理を実行
+    await processNonSpamMessage(msg);
+});
+
+// スパム検知以外のメッセージ処理を行う関数
+async function processNonSpamMessage(msg) {
+
     // メッセージ内容を小文字に変換して、大文字・小文字を区別しない検索を可能にする
     const messageContentLower = msg.content.toLowerCase();
 
@@ -839,6 +867,6 @@ client.on("messageCreate", async (msg) => {
             );
         }
     }
-});
+}
 
 client.login(token);
