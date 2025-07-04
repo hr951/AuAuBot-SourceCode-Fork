@@ -156,6 +156,37 @@ const KAIJIDANA = [
     "ふるえてねむれ",
 ];
 
+// アプリケーション使用時の悪意あるワード
+const MALICIOUS_APP_WORDS = [
+    "死ね",
+    "殺す",
+    "殺して",
+    "消えろ",
+    "ころす",
+    "しね",
+    "きえろ",
+    "障害者",
+    "ガイジ",
+    "がいじ",
+    "知的障害",
+    "ちてきしょうがい",
+    "バカ",
+    "アホ",
+    "ばか",
+    "あほ",
+    "うざい",
+    "きもい",
+    "気持ち悪い",
+    "うんち",
+    "うんこ",
+    "クソ",
+    "くそ",
+    "ファック",
+    "fuck",
+    "shit",
+    "bitch",
+];
+
 // 通常の参加者ペースを計算する関数
 function calculateNormalJoinRate(guildId) {
     const history = joinHistory.get(guildId) || [];
@@ -376,6 +407,18 @@ client.on(Events.GuildCreate, async (guild) => {
                 reason: "あうあうBot初期化 - レイドガードロール作成",
             });
             console.log(`RaidGuard_AuAuロールを作成しました`);
+        }
+
+        let appRestrictRole = guild.roles.cache.find(
+            (role) => role.name === "AppRestrict_AuAu",
+        );
+        if (!appRestrictRole) {
+            appRestrictRole = await guild.roles.create({
+                name: "AppRestrict_AuAu",
+                color: "#FFA500",
+                reason: "あうあうBot初期化 - アプリケーション制限ロール作成",
+            });
+            console.log(`AppRestrict_AuAuロールを作成しました`);
         }
 
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -857,6 +900,88 @@ client.on("messageCreate", async (msg) => {
     }
 
     await processNonSpamMessage(msg);
+});
+
+// アプリケーション使用検知とロール付与機能
+client.on(Events.InteractionCreate, async (interaction) => {
+    // アプリケーションコマンドの使用を検知
+    if (interaction.isCommand() || interaction.isApplicationCommand()) {
+        const user = interaction.user;
+        const guild = interaction.guild;
+        
+        if (!guild) return; // DMでは処理しない
+        
+        // コマンドの内容をチェック
+        let contentToCheck = '';
+        
+        // スラッシュコマンドの場合
+        if (interaction.commandName) {
+            contentToCheck += interaction.commandName + ' ';
+        }
+        
+        // オプションがある場合
+        if (interaction.options && interaction.options.data) {
+            for (const option of interaction.options.data) {
+                if (option.value && typeof option.value === 'string') {
+                    contentToCheck += option.value + ' ';
+                }
+            }
+        }
+        
+        // 悪意あるワードをチェック
+        const containsMaliciousWord = MALICIOUS_APP_WORDS.some(word => 
+            contentToCheck.toLowerCase().includes(word.toLowerCase())
+        );
+        
+        if (containsMaliciousWord) {
+            try {
+                console.log(`アプリケーション使用時の悪意あるワード検知: ${user.username} - "${contentToCheck}"`);
+                
+                // AppRestrict_AuAuロールを取得または作成
+                let restrictRole = guild.roles.cache.find(role => role.name === 'AppRestrict_AuAu');
+                
+                if (!restrictRole) {
+                    restrictRole = await guild.roles.create({
+                        name: 'AppRestrict_AuAu',
+                        color: '#FFA500',
+                        reason: 'アプリケーション使用制限ロール'
+                    });
+                    console.log(`AppRestrict_AuAuロールを作成しました`);
+                }
+                
+                const member = guild.members.cache.get(user.id);
+                if (member && !member.roles.cache.has(restrictRole.id)) {
+                    await member.roles.add(restrictRole);
+                    console.log(`${user.username} にAppRestrict_AuAuロールを付与しました`);
+                    
+                    // ログチャンネルに通知
+                    let logChannel = guild.channels.cache.find(channel => 
+                        channel.name === 'auau-log' && channel.type === ChannelType.GuildText
+                    );
+                    
+                    if (logChannel) {
+                        await logChannel.send(
+                            `🚨 **アプリケーション使用時の悪意あるワード検知**\n` +
+                            `ユーザー: ${user.username} (${user.id})\n` +
+                            `検知内容: "${contentToCheck}"\n` +
+                            `AppRestrict_AuAuロールを付与しました。`
+                        );
+                    }
+                }
+                
+                // 元のインタラクションにエラーメッセージを送信
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({
+                        content: '⚠️ 不適切な内容が検出されました。アプリケーション使用制限ロールが付与されました。',
+                        ephemeral: true
+                    });
+                }
+                
+            } catch (error) {
+                console.error('アプリケーション制限ロール付与中にエラーが発生しました:', error);
+            }
+        }
+    }
 });
 
 // スパム検知以外のメッセージ処理を行う関数
