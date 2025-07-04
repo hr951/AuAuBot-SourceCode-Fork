@@ -190,6 +190,104 @@ const MALICIOUS_APP_WORDS = [
     "discord.gg/ozeu-x",
 ];
 
+// NukeBot検知のための設定
+const NUKEBOT_DETECTION_WINDOW = 2 * 60 * 1000; // 2分間のウィンドウ
+const NUKEBOT_ROLE_THRESHOLD = 10; // 2分間で10個以上のロール操作
+const NUKEBOT_CHANNEL_THRESHOLD = 5; // 2分間で5個以上のチャンネル操作
+const nukeBotHistory = new Map(); // Bot IDごとの操作履歴
+
+// NukeBot検知用の操作履歴を記録する関数
+function recordBotActivity(botId, guildId, activityType) {
+    const now = Date.now();
+    const key = `${botId}-${guildId}`;
+    
+    if (!nukeBotHistory.has(key)) {
+        nukeBotHistory.set(key, {
+            roleActions: [],
+            channelActions: []
+        });
+    }
+    
+    const history = nukeBotHistory.get(key);
+    const windowStart = now - NUKEBOT_DETECTION_WINDOW;
+    
+    if (activityType === 'role') {
+        history.roleActions = history.roleActions.filter(timestamp => timestamp >= windowStart);
+        history.roleActions.push(now);
+    } else if (activityType === 'channel') {
+        history.channelActions = history.channelActions.filter(timestamp => timestamp >= windowStart);
+        history.channelActions.push(now);
+    }
+    
+    nukeBotHistory.set(key, history);
+    return history;
+}
+
+// NukeBot検知関数
+async function checkForNukeBot(guild, botUser, activityType) {
+    const history = recordBotActivity(botUser.id, guild.id, activityType);
+    
+    const roleActionsCount = history.roleActions.length;
+    const channelActionsCount = history.channelActions.length;
+    
+    console.log(`NukeBot検知チェック - Bot: ${botUser.username}, ロール操作: ${roleActionsCount}, チャンネル操作: ${channelActionsCount}`);
+    
+    if (roleActionsCount >= NUKEBOT_ROLE_THRESHOLD || channelActionsCount >= NUKEBOT_CHANNEL_THRESHOLD) {
+        console.log(`NukeBot検知！ Bot: ${botUser.username} (${botUser.id})`);
+        await banNukeBot(guild, botUser, roleActionsCount, channelActionsCount);
+    }
+}
+
+// NukeBotをBANする関数
+async function banNukeBot(guild, botUser, roleCount, channelCount) {
+    try {
+        const member = guild.members.cache.get(botUser.id);
+        if (!member) return;
+        
+        await member.ban({ 
+            reason: `NukeBot検知: 2分間でロール操作${roleCount}回、チャンネル操作${channelCount}回` 
+        });
+        
+        console.log(`NukeBot ${botUser.username} (${botUser.id}) をBANしました`);
+        
+        // ログチャンネルに通知
+        let logChannel = guild.channels.cache.find(
+            (channel) => channel.name === "auau-log" && channel.type === ChannelType.GuildText,
+        );
+        
+        if (!logChannel) {
+            logChannel = await guild.channels.create({
+                name: "auau-log",
+                type: ChannelType.GuildText,
+                permissionOverwrites: [
+                    {
+                        id: guild.roles.everyone,
+                        deny: ["ViewChannel"],
+                    },
+                    {
+                        id: client.user.id,
+                        allow: ["ViewChannel", "SendMessages"],
+                    },
+                ],
+                reason: "NukeBot検知ログ用チャンネルを作成",
+            });
+        }
+        
+        await logChannel.send(
+            `🚨 **NukeBot検知 & 自動BAN** 🚨\n` +
+            `Bot名: ${botUser.username}\n` +
+            `BotID: \`${botUser.id}\`\n` +
+            `検知理由: 2分間で異常な操作を検知\n` +
+            `- ロール操作: ${roleCount}回\n` +
+            `- チャンネル操作: ${channelCount}回\n` +
+            `自動的にBANしました。サーバーを保護しています。`
+        );
+        
+    } catch (error) {
+        console.error(`NukeBot (${botUser.id}) のBAN中にエラーが発生しました:`, error);
+    }
+}
+
 // 通常の参加者ペースを計算する関数
 function calculateNormalJoinRate(guildId) {
     const history = joinHistory.get(guildId) || [];
@@ -649,7 +747,57 @@ client.on(Events.GuildMemberAdd, async (member) => {
     }
 });
 
+// ロール作成監視
+client.on(Events.GuildRoleCreate, async (role) => {
+    // 監査ログから作成者を取得
+    try {
+        const auditLogs = await role.guild.fetchAuditLogs({
+            type: 30, // ROLE_CREATE
+            limit: 1,
+        });
+        
+        const logEntry = auditLogs.entries.first();
+        if (logEntry && logEntry.executor && logEntry.executor.bot) {
+            await checkForNukeBot(role.guild, logEntry.executor, 'role');
+        }
+    } catch (error) {
+        console.error('ロール作成監視中にエラーが発生しました:', error);
+    }
+});
+
+// ロール削除監視
+client.on(Events.GuildRoleDelete, async (role) => {
+    try {
+        const auditLogs = await role.guild.fetchAuditLogs({
+            type: 32, // ROLE_DELETE
+            limit: 1,
+        });
+        
+        const logEntry = auditLogs.entries.first();
+        if (logEntry && logEntry.executor && logEntry.executor.bot) {
+            await checkForNukeBot(role.guild, logEntry.executor, 'role');
+        }
+    } catch (error) {
+        console.error('ロール削除監視中にエラーが発生しました:', error);
+    }
+});
+
 client.on(Events.ChannelCreate, async (channel) => {
+    // NukeBot検知のためのチャンネル作成監視
+    try {
+        const auditLogs = await channel.guild.fetchAuditLogs({
+            type: 10, // CHANNEL_CREATE
+            limit: 1,
+        });
+        
+        const logEntry = auditLogs.entries.first();
+        if (logEntry && logEntry.executor && logEntry.executor.bot) {
+            await checkForNukeBot(channel.guild, logEntry.executor, 'channel');
+        }
+    } catch (error) {
+        console.error('チャンネル作成監視中にエラーが発生しました:', error);
+    }
+
     if (
         channel.type === ChannelType.GuildText ||
         channel.type === ChannelType.GuildVoice
@@ -721,6 +869,23 @@ client.on(Events.ChannelCreate, async (channel) => {
                 );
             }
         }
+    }
+});
+
+// チャンネル削除監視
+client.on(Events.ChannelDelete, async (channel) => {
+    try {
+        const auditLogs = await channel.guild.fetchAuditLogs({
+            type: 12, // CHANNEL_DELETE
+            limit: 1,
+        });
+        
+        const logEntry = auditLogs.entries.first();
+        if (logEntry && logEntry.executor && logEntry.executor.bot) {
+            await checkForNukeBot(channel.guild, logEntry.executor, 'channel');
+        }
+    } catch (error) {
+        console.error('チャンネル削除監視中にエラーが発生しました:', error);
     }
 });
 
