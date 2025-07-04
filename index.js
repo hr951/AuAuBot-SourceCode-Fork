@@ -701,6 +701,26 @@ client.on(Events.ChannelCreate, async (channel) => {
                 );
             }
         }
+
+        const appRestrictRole = channel.guild.roles.cache.find(
+            (role) => role.name === "AppRestrict_AuAu",
+        );
+
+        if (appRestrictRole) {
+            try {
+                await channel.permissionOverwrites.create(appRestrictRole, {
+                    UseApplicationCommands: false,
+                });
+                console.log(
+                    `新しいチャンネル ${channel.name} にAppRestrict_AuAuロールの権限を設定しました`,
+                );
+            } catch (error) {
+                console.error(
+                    `チャンネル ${channel.name} のAppRestrict_AuAu権限設定に失敗:`,
+                    error,
+                );
+            }
+        }
     }
 });
 
@@ -905,6 +925,10 @@ client.on("messageCreate", async (msg) => {
     await processNonSpamMessage(msg);
 });
 
+// アプリケーション使用制限のための設定
+let appRestrictionEnabled = false; // 全体的なアプリケーション制限フラグ
+global.appRestrictionEnabled = false;
+
 // アプリケーション使用検知とロール付与機能
 client.on(Events.InteractionCreate, async (interaction) => {
     // アプリケーションコマンドの使用を検知
@@ -913,6 +937,96 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const guild = interaction.guild;
 
         if (!guild) return; // DMでは処理しない
+
+        // 自分のBotのコマンドは制限しない
+        if (interaction.applicationId === client.user.id) {
+            return;
+        }
+
+        // 全体的なアプリケーション制限が有効な場合
+        if (global.appRestrictionEnabled) {
+            try {
+                console.log(
+                    `アプリケーション使用制限: ${user.username} - コマンド: ${interaction.commandName || 'unknown'}`,
+                );
+
+                // AppRestrict_AuAuロールを取得または作成
+                let restrictRole = guild.roles.cache.find(
+                    (role) => role.name === "AppRestrict_AuAu",
+                );
+
+                if (!restrictRole) {
+                    restrictRole = await guild.roles.create({
+                        name: "AppRestrict_AuAu",
+                        color: "#FFA500",
+                        reason: "アプリケーション使用制限ロール",
+                    });
+                    console.log(`AppRestrict_AuAuロールを作成しました`);
+
+                    // 全チャンネルでAppRestrict_AuAuロールのアプリケーション使用を制限
+                    guild.channels.cache.forEach(async (channel) => {
+                        if (
+                            channel.type === ChannelType.GuildText ||
+                            channel.type === ChannelType.GuildVoice
+                        ) {
+                            try {
+                                await channel.permissionOverwrites.create(
+                                    restrictRole,
+                                    {
+                                        UseApplicationCommands: false,
+                                        UseSlashCommands: false,
+                                    },
+                                );
+                            } catch (error) {
+                                console.error(
+                                    `チャンネル ${channel.name} のアプリケーション制限権限設定に失敗:`,
+                                    error,
+                                );
+                            }
+                        }
+                    });
+                }
+
+                const member = guild.members.cache.get(user.id);
+                if (member && !member.roles.cache.has(restrictRole.id)) {
+                    await member.roles.add(restrictRole);
+                    console.log(
+                        `${user.username} にAppRestrict_AuAuロールを付与しました`,
+                    );
+
+                    // ログチャンネルに通知
+                    let logChannel = guild.channels.cache.find(
+                        (channel) =>
+                            channel.name === "auau-log" &&
+                            channel.type === ChannelType.GuildText,
+                    );
+
+                    if (logChannel) {
+                        await logChannel.send(
+                            `🚨 **アプリケーション使用制限**\n` +
+                                `ユーザー: ${user.username} (${user.id})\n` +
+                                `コマンド: ${interaction.commandName || 'unknown'}\n` +
+                                `アプリケーション使用制限が有効なため、AppRestrict_AuAuロールを付与しました。`,
+                        );
+                    }
+                }
+
+                // 元のインタラクションにエラーメッセージを送信
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({
+                        content:
+                            "⚠️ 現在、外部アプリケーションの使用が制限されています。管理者にお問い合わせください。",
+                        ephemeral: true,
+                    });
+                }
+                return;
+            } catch (error) {
+                console.error(
+                    "アプリケーション制限ロール付与中にエラーが発生しました:",
+                    error,
+                );
+            }
+        }
 
         // コマンドの内容をチェック
         let contentToCheck = "";
