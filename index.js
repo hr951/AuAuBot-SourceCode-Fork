@@ -272,7 +272,7 @@ async function activateRaidMode(guild) {
                 );
             } catch (error) {
                 console.error(
-                    `${member.user.username} へのロール���与に失敗:`,
+                    `${member.user.username} へのロール与に失敗:`,
                     error,
                 );
             }
@@ -452,6 +452,12 @@ client.on(Events.GuildCreate, async (guild) => {
     }
 });
 
+// コマンドのクールダウン時間を設定 (ミリ秒)
+const COMMAND_COOLDOWN_TIME = 3000; // 例: 3秒
+
+// ユーザーごとのコマンドクールダウンを記録するMap
+const commandCooldowns = new Map(); // userId -> { commandName -> lastExecuted }
+
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
     const command = interaction.client.commands.get(interaction.commandName);
@@ -462,6 +468,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
         );
         return;
     }
+
+    // クールダウンチェック
+    const userId = interaction.user.id;
+    const commandName = interaction.commandName;
+    const now = Date.now();
+
+    if (!commandCooldowns.has(userId)) {
+        commandCooldowns.set(userId, {});
+    }
+
+    const userCooldowns = commandCooldowns.get(userId);
+    const lastExecuted = userCooldowns[commandName] || 0;
+    const timeDiff = now - lastExecuted;
+
+    if (timeDiff < COMMAND_COOLDOWN_TIME) {
+        const remainingTime = Math.ceil((COMMAND_COOLDOWN_TIME - timeDiff) / 1000);
+        await interaction.reply({
+            content: `⏰ コマンドのクールダウン中です。あと ${remainingTime} 秒お待ちください。`,
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
+
+    // クールダウンを更新
+    userCooldowns[commandName] = now;
+    commandCooldowns.set(userId, userCooldowns);
 
     try {
         await command.execute(interaction);
@@ -474,7 +506,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             });
         } else {
             await interaction.reply({
-                content: "コマン���実行してるときにエラー出たんだってさ。",
+                content: "コマンド実行してるときにエラー出たんだってさ。",
                 flags: MessageFlags.Ephemeral,
             });
         }
@@ -586,7 +618,6 @@ client.on(Events.ChannelCreate, async (channel) => {
                     AddReactions: false,
                     SendMessagesInThreads: false,
                     CreatePublicThreads: false,
-                    CreatePrivateThreads: false,
                 });
                 console.log(
                     `新しいチャンネル ${channel.name} にMuted_AuAuロールの権限を設定しました`,

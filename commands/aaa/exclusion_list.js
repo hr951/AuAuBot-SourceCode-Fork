@@ -6,6 +6,8 @@ const {
     ActionRowBuilder,
     ComponentType,
 } = require("discord.js");
+const fs = require("node:fs");
+const path = require("node:path");
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -131,6 +133,27 @@ module.exports = {
                     resultMessage += `📋 **現在除外中のロール:**\n${currentExcludedRoles.map((name) => `• ${name}`).join("\n")}`;
                 } else {
                     resultMessage += `📋 **現在除外中のロール:** なし`;
+                }
+
+                // 設定をJSONファイルに保存
+                try {
+                    const exclusionPath = "./exclusion_roles.json";
+                    let allExclusionData = {};
+                    
+                    // 既存のファイルを読み込み
+                    if (fs.existsSync(exclusionPath)) {
+                        allExclusionData = JSON.parse(fs.readFileSync(exclusionPath, "utf-8"));
+                    }
+                    
+                    // 現在のサーバーのデータを更新
+                    allExclusionData[guild.id] = Array.from(exclusionSet);
+                    
+                    // ファイルに保存
+                    fs.writeFileSync(exclusionPath, JSON.stringify(allExclusionData, null, 2));
+                    
+                    console.log(`[exclusion_list] 設定をファイルに保存しました`);
+                } catch (error) {
+                    console.error(`[exclusion_list] 設定の保存に失敗しました:`, error);
                 }
 
                 await selectInteraction.update({
