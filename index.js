@@ -453,9 +453,9 @@ client.on(Events.GuildCreate, async (guild) => {
 });
 
 // コマンドのクールダウン時間を設定 (ミリ秒)
-const COMMAND_COOLDOWN_TIME = 3000; // 例: 3秒
+const COMMAND_COOLDOWN_TIME = 15000; // 例: 3秒
 
-// ユーザーごとのコマンドクールダウンを記録するMap
+// ユーザu��ごとのコマンドクールダウンを記録するMap
 const commandCooldowns = new Map(); // userId -> { commandName -> lastExecuted }
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -483,7 +483,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const timeDiff = now - lastExecuted;
 
     if (timeDiff < COMMAND_COOLDOWN_TIME) {
-        const remainingTime = Math.ceil((COMMAND_COOLDOWN_TIME - timeDiff) / 1000);
+        const remainingTime = Math.ceil(
+            (COMMAND_COOLDOWN_TIME - timeDiff) / 1000,
+        );
         await interaction.reply({
             content: `⏰ コマンドのクールダウン中です。あと ${remainingTime} 秒お待ちください。`,
             flags: MessageFlags.Ephemeral,
