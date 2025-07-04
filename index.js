@@ -3,6 +3,7 @@ const stringSimilarity = require("string-similarity");
 const token = process.env.DISCORD_TOKEN;
 const fs = require("node:fs");
 const path = require("node:path");
+const exclusionPath = "./exclusion_roles.json";
 
 // スパム検知のための設定
 const SPAM_THRESHOLD_MESSAGES = 3; // 3メッセージ（テスト用に下げる）
@@ -19,6 +20,16 @@ const joinHistory = new Map(); // サーバーごとの参加履歴
 
 const userMessageData = new Map(); // Mapを使用してユーザーごとのデータを保存
 const raidModeStatus = new Map(); // サーバーごとのレイドモード状態を追跡
+
+global.spamExclusionRoles = new Map();
+
+if (fs.existsSync(exclusionPath)) {
+    const data = JSON.parse(fs.readFileSync(exclusionPath, "utf-8"));
+    for (const [guildId, roleIds] of Object.entries(data)) {
+        global.spamExclusionRoles.set(guildId, new Set(roleIds));
+    }
+    console.log("スパム検知除外リストを読み込みました。");
+}
 
 // レイドモード状態をリセットする関数
 function resetRaidMode(guildId) {
@@ -43,13 +54,12 @@ const {
 } = require("discord.js");
 
 const client = new Client({
-    // メッセージの内容を読み取るために GatewayIntentBits.MessageContent が必須です。
-    // その他の必要なIntentsも追加しています。
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent, // これが重要！
-        GatewayIntentBits.GuildMembers, // GuildMembers Intent を追加
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.DirectMessages, // DM受信のために追加
     ],
 });
 
@@ -86,6 +96,7 @@ const homo_words = [
     "野獣",
     "やじゅう",
     "ホモ",
+    "ﾔｼﾞｭｾﾝﾊﾟｲｲｷｽｷﾞﾝｲｸｲｸｱｯｱｯｱｯｱｰﾔﾘﾏｽﾈ",
 ];
 
 const soudayo = [
@@ -110,7 +121,6 @@ const abunai_words = [
     "ガイジ",
     "がいじ",
     "知的障害",
-    "しね",
     "きえろ",
     "ころす",
     "ころして",
@@ -122,7 +132,7 @@ const abunai_words = [
 
 // ここに危険なBotのIDを追加
 const DANGEROUS_BOT_IDS = [
-    "1363066479100170330", // 例: '123456789012345678'
+    "1363066479100170330",
     "1286667959397515355",
     "1371866834818826380",
     "1321414173602746419",
@@ -133,7 +143,17 @@ const DANGEROUS_BOT_IDS = [
     "1352779479302410260",
     "1379825654035648555",
     "1386680498537107666",
-    // 必要に応じてさらに追加
+];
+
+const KAIJIDANA = [
+    "開示",
+    "開示だな",
+    "音の出るゴミ",
+    "震えて眠れ",
+    "かいじ",
+    "かいじだな",
+    "おとのでるごみ",
+    "ふるえてねむれ",
 ];
 
 // 通常の参加者ペースを計算する関数
@@ -142,20 +162,16 @@ function calculateNormalJoinRate(guildId) {
     const now = Date.now();
     const normalPeriodStart = now - NORMAL_PERIOD_DAYS * 24 * 60 * 60 * 1000;
 
-    // 過去7日間の参加者を抽出
     const normalPeriodJoins = history.filter(
         (timestamp) => timestamp >= normalPeriodStart,
     );
 
     if (normalPeriodJoins.length === 0) {
-        return 0; // 過去7日間に参加者がいない場合は0
+        return 0;
     }
 
-    // 1時間あたりの平均参加者数を計算
     const hoursInPeriod = (now - normalPeriodStart) / (60 * 60 * 1000);
     const avgJoinsPerHour = normalPeriodJoins.length / hoursInPeriod;
-
-    // 5分間あたりの平均参加者数に変換
     return avgJoinsPerHour * (5 / 60);
 }
 
@@ -166,11 +182,9 @@ async function checkForRaid(guild) {
     const now = Date.now();
     const windowStart = now - RAID_DETECTION_WINDOW;
 
-    // 過去5分間の参加者数を計算
     const recentJoins = history.filter((timestamp) => timestamp >= windowStart);
     const recentJoinCount = recentJoins.length;
 
-    // 通常の参加者ペースを計算
     const normalRate = calculateNormalJoinRate(guildId);
     const threshold = Math.max(
         normalRate * RAID_THRESHOLD_MULTIPLIER,
@@ -193,13 +207,11 @@ async function activateRaidMode(guild) {
     try {
         const guildId = guild.id;
 
-        // 既にレイドモードが有効になっているかチェック
         if (raidModeStatus.get(guildId)) {
             console.log(`レイドモードは既に有効です - サーバー: ${guild.name}`);
             return;
         }
 
-        // RaidGuard_AuAuロールを取得または作成
         let raidGuardRole = guild.roles.cache.find(
             (role) => role.name === "RaidGuard_AuAu",
         );
@@ -209,12 +221,11 @@ async function activateRaidMode(guild) {
         if (!raidGuardRole) {
             raidGuardRole = await guild.roles.create({
                 name: "RaidGuard_AuAu",
-                color: "#FF0000", // 赤色
+                color: "#FF0000",
                 reason: "レイド対策用制限ロール",
             });
             console.log(`RaidGuard_AuAuロールを作成しました`);
 
-            // 全チャンネルに対してレイドガードロールの権限を設定
             guild.channels.cache.forEach(async (channel) => {
                 if (
                     channel.type === ChannelType.GuildText ||
@@ -241,10 +252,8 @@ async function activateRaidMode(guild) {
             });
         }
 
-        // レイドモードを有効状態に設定
         raidModeStatus.set(guildId, true);
 
-        // 新規参加者にロールを付与（過去5分間に参加したメンバー）
         const now = Date.now();
         const recentJoinThreshold = now - RAID_DETECTION_WINDOW;
 
@@ -263,15 +272,13 @@ async function activateRaidMode(guild) {
                 );
             } catch (error) {
                 console.error(
-                    `${member.user.username} へのロール付与に失敗:`,
+                    `${member.user.username} へのロール���与に失敗:`,
                     error,
                 );
             }
         }
 
-        // 新しいレイドモードの場合のみログメッセージを送信
         if (isNewRaidMode) {
-            // ログチャンネルを見つけるか作成する
             let logChannel = guild.channels.cache.find(
                 (channel) =>
                     channel.name === "auau-log" &&
@@ -297,7 +304,6 @@ async function activateRaidMode(guild) {
                 console.log(`auau-log チャンネルを作成しました。`);
             }
 
-            // ログメッセージを送信
             await logChannel.send(
                 `⚠️ **異常な参加ペースを検知しました！**\n` +
                     `現在、いつもより明らかに早いスピードで新規メンバーが参加しています。\n` +
@@ -319,12 +325,10 @@ client.on("ready", () => {
     console.log(`${client.user.tag}でログインしました!!`);
 });
 
-// Botがサーバーに参加したときのイベント
 client.on(Events.GuildCreate, async (guild) => {
     try {
         console.log(`新しいサーバーに参加しました: ${guild.name}`);
 
-        // auau-logチャンネルを作成
         let logChannel = guild.channels.cache.find(
             (channel) =>
                 channel.name === "auau-log" &&
@@ -350,7 +354,6 @@ client.on(Events.GuildCreate, async (guild) => {
             console.log(`auau-logチャンネルを作成しました`);
         }
 
-        // Muted_AuAuロールを作成
         let muteRole = guild.roles.cache.find(
             (role) => role.name === "Muted_AuAu",
         );
@@ -363,7 +366,6 @@ client.on(Events.GuildCreate, async (guild) => {
             console.log(`Muted_AuAuロールを作成しました`);
         }
 
-        // RaidGuard_AuAuロールを作成
         let raidGuardRole = guild.roles.cache.find(
             (role) => role.name === "RaidGuard_AuAu",
         );
@@ -376,10 +378,8 @@ client.on(Events.GuildCreate, async (guild) => {
             console.log(`RaidGuard_AuAuロールを作成しました`);
         }
 
-        // 権限設定のために少し待機
         await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        // 全チャンネルに対してロールの権限を設定
         const channels = guild.channels.cache.filter(
             (channel) =>
                 channel.type === ChannelType.GuildText ||
@@ -388,7 +388,6 @@ client.on(Events.GuildCreate, async (guild) => {
 
         for (const [, channel] of channels) {
             try {
-                // Botがチャンネルの権限を管理できるかチェック
                 const botMember = guild.members.cache.get(client.user.id);
                 if (
                     !channel
@@ -401,7 +400,6 @@ client.on(Events.GuildCreate, async (guild) => {
                     continue;
                 }
 
-                // Muted_AuAuロールの権限設定
                 await channel.permissionOverwrites.create(muteRole, {
                     SendMessages: false,
                     Speak: false,
@@ -411,7 +409,6 @@ client.on(Events.GuildCreate, async (guild) => {
                     CreatePrivateThreads: false,
                 });
 
-                // RaidGuard_AuAuロールの権限設定
                 await channel.permissionOverwrites.create(raidGuardRole, {
                     SendMessages: false,
                     AddReactions: false,
@@ -422,7 +419,6 @@ client.on(Events.GuildCreate, async (guild) => {
 
                 console.log(`チャンネル ${channel.name} の権限設定完了`);
 
-                // レート制限を避けるため少し待機
                 await new Promise((resolve) => setTimeout(resolve, 200));
             } catch (error) {
                 if (error.code === 50001 || error.code === 50013) {
@@ -438,7 +434,6 @@ client.on(Events.GuildCreate, async (guild) => {
             }
         }
 
-        // ウェルカムメッセージを送信
         await logChannel.send({
             content:
                 `やあ！屋上あんだけど…焼いてかない...？\n` +
@@ -479,19 +474,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
             });
         } else {
             await interaction.reply({
-                content: "コマンド実行してるときにエラー出たんだってさ。",
+                content: "コマン���実行してるときにエラー出たんだってさ。",
                 flags: MessageFlags.Ephemeral,
             });
         }
     }
 });
 
-// 新しいメンバーがサーバーに参加したときのイベント
 client.on(Events.GuildMemberAdd, async (member) => {
     const guildId = member.guild.id;
     const now = Date.now();
 
-    // 参加履歴を記録
     if (!joinHistory.has(guildId)) {
         joinHistory.set(guildId, []);
     }
@@ -499,25 +492,20 @@ client.on(Events.GuildMemberAdd, async (member) => {
     const history = joinHistory.get(guildId);
     history.push(now);
 
-    // 古い履歴を削除（7日より古いものを削除）
     const sevenDaysAgo = now - NORMAL_PERIOD_DAYS * 24 * 60 * 60 * 1000;
     const cleanHistory = history.filter(
         (timestamp) => timestamp >= sevenDaysAgo,
     );
     joinHistory.set(guildId, cleanHistory);
 
-    // 参加したのがBotかどうかをチェック
     if (member.user.bot) {
-        // そのBotが危険なBotリストに含まれているかをチェック
         if (DANGEROUS_BOT_IDS.includes(member.user.id)) {
             try {
-                // Botを即座にBANする
                 await member.ban({ reason: "危険なBotのため自動BAN" });
                 console.log(
                     `危険なBot ${member.user.tag} (${member.user.id}) をBANしました。`,
                 );
 
-                // ログチャンネルを見つけるか作成する
                 let logChannel = member.guild.channels.cache.find(
                     (channel) =>
                         channel.name === "auau-log" &&
@@ -525,27 +513,24 @@ client.on(Events.GuildMemberAdd, async (member) => {
                 );
 
                 if (!logChannel) {
-                    // auau-log チャンネルが存在しない場合、プライベートチャンネルとして作成
                     logChannel = await member.guild.channels.create({
                         name: "auau-log",
                         type: ChannelType.GuildText,
                         permissionOverwrites: [
                             {
                                 id: member.guild.roles.everyone,
-                                deny: ["ViewChannel"], // @everyone からは隠す
+                                deny: ["ViewChannel"],
                             },
                             {
-                                id: client.user.id, // ボット自身は閲覧可能にする
+                                id: client.user.id,
                                 allow: ["ViewChannel", "SendMessages"],
                             },
-                            // 必要に応じて管理者ロールなどを追加することも可能
                         ],
                         reason: "危険なBotのログ用チャンネルを作成",
                     });
                     console.log(`auau-log チャンネルを作成しました。`);
                 }
 
-                // ログチャンネルに通知を送信
                 await logChannel.send(
                     `:rotating_light: **危険なBot検知 & BAN** :rotating_light:\n` +
                         `Botの名前: ${member.user.tag}\n` +
@@ -557,18 +542,18 @@ client.on(Events.GuildMemberAdd, async (member) => {
                     `危険なBot (${member.user.id}) のBANまたはログ送信中にエラーが発生しました:`,
                     error,
                 );
-                // BANに失敗した場合、ボットのプライベートメッセージなどで通知することも検討
             }
         }
     } else {
-        // 人間のメンバーの場合、レイド検知を実行
         await checkForRaid(member.guild);
 
-        // RaidGuard_AuAuロールが存在する場合、新規参加者に付与
         const raidGuardRole = member.guild.roles.cache.find(
             (role) => role.name === "RaidGuard_AuAu",
         );
-        if (raidGuardRole) {
+        const isRaidMode = raidModeStatus.get(guildId); // ← 追加
+
+        if (raidGuardRole && isRaidMode) {
+            // ← 条件付きで付与
             try {
                 await member.roles.add(raidGuardRole);
                 console.log(
@@ -584,21 +569,17 @@ client.on(Events.GuildMemberAdd, async (member) => {
     }
 });
 
-// 新しいチャンネルが作成された時のイベント
 client.on(Events.ChannelCreate, async (channel) => {
-    // テキストチャンネルまたはボイスチャンネルの場合のみ処理
     if (
         channel.type === ChannelType.GuildText ||
         channel.type === ChannelType.GuildVoice
     ) {
-        // Muted_AuAuロールが存在するかチェック
         const muteRole = channel.guild.roles.cache.find(
             (role) => role.name === "Muted_AuAu",
         );
 
         if (muteRole) {
             try {
-                // 新しいチャンネルにミュートロールの権限を設定
                 await channel.permissionOverwrites.create(muteRole, {
                     SendMessages: false,
                     Speak: false,
@@ -618,14 +599,12 @@ client.on(Events.ChannelCreate, async (channel) => {
             }
         }
 
-        // RaidGuard_AuAuロールが存在するかチェック
         const raidGuardRole = channel.guild.roles.cache.find(
             (role) => role.name === "RaidGuard_AuAu",
         );
 
         if (raidGuardRole) {
             try {
-                // 新しいチャンネルにレイドガードロールの権限を設定
                 await channel.permissionOverwrites.create(raidGuardRole, {
                     SendMessages: false,
                     AddReactions: false,
@@ -649,17 +628,95 @@ client.on(Events.ChannelCreate, async (channel) => {
 client.on("messageCreate", async (msg) => {
     if (msg.author.bot) return;
 
+    // DMメッセージの処理
+    if (msg.channel.type === ChannelType.DM) {
+        const args = msg.content.trim().split(/\s+/);
+        if (args.length === 3 && args[2] === "unmute_rec") {
+            const userId = args[0];
+            const guildId = args[1];
+
+            // 入力の検証
+            if (!/^\d{17,19}$/.test(userId) || !/^\d{17,19}$/.test(guildId)) {
+                await msg.reply(
+                    "無効なユーザーIDまたはサーバーIDです。正しい形式で入力してください。\n例: `123456789012345678 123456789012345678 unmute_rec`",
+                );
+                return;
+            }
+
+            try {
+                const guild = await client.guilds.fetch(guildId);
+                const member = await guild.members.fetch(userId);
+                const muteRole = guild.roles.cache.find(
+                    (role) => role.name === "Muted_AuAu",
+                );
+
+                if (!muteRole) {
+                    await msg.reply(
+                        `サーバー ${guild.name} にMuted_AuAuロールが見つかりません。`,
+                    );
+                    return;
+                }
+
+                if (!member.roles.cache.has(muteRole.id)) {
+                    await msg.reply(
+                        `${member.user.username} は既にミュートされていません。`,
+                    );
+                    return;
+                }
+
+                await member.roles.remove(muteRole);
+                await msg.reply(
+                    `${guild.name} の ${member.user.username} のミュートを解除しました。`,
+                );
+                console.log(
+                    `DM経由で ${guild.name} の ${member.user.username} のMuted_AuAuロールを解除しました`,
+                );
+
+                // ログチャンネルに通知
+                let logChannel = guild.channels.cache.find(
+                    (channel) =>
+                        channel.name === "auau-log" &&
+                        channel.type === ChannelType.GuildText,
+                );
+
+                if (logChannel) {
+                    await logChannel.send(
+                        `🔔 **ミュート解除通知**\n` +
+                            `ユーザー: ${member.user.username} (ID: ${userId})\n` +
+                            `DM経由でMuted_AuAuロールを解除しました。`,
+                    );
+                }
+            } catch (error) {
+                console.error(
+                    "DM経由のミュート解除中にエラーが発生しました:",
+                    error,
+                );
+                await msg.reply(
+                    "ミュート解除に失敗しました。ユーザーまたはサーバーが見つからないか、権限が不足しています。",
+                );
+            }
+        } else {
+            await msg.reply(
+                "無効なコマンドです。形式: `ユーザーID サーバーID unmute_rec`\n例: `123456789012345678 123456789012345678 unmute_rec`",
+            );
+        }
+        return;
+    }
+
     // スパム検知除外ロールをチェック
     const guildId = msg.guild.id;
     const exclusionRoles = spamExclusionRoles.get(guildId);
-    
+
     if (exclusionRoles && exclusionRoles.size > 0) {
         const member = msg.guild.members.cache.get(msg.author.id);
         if (member) {
-            const hasExclusionRole = member.roles.cache.some(role => exclusionRoles.has(role.id));
+            const hasExclusionRole = member.roles.cache.some((role) =>
+                exclusionRoles.has(role.id),
+            );
             if (hasExclusionRole) {
-                console.log(`スパム検知をスキップ: ${msg.author.username} (除外ロール所持)`);
-                // スパム検知をスキップして、他の処理のみ実行
+                console.log(
+                    `スパム検知をスキップ: ${msg.author.username} (除外ロール所持)`,
+                );
                 await processNonSpamMessage(msg);
                 return;
             }
@@ -669,20 +726,16 @@ client.on("messageCreate", async (msg) => {
     const userId = msg.author.id;
     const now = Date.now();
 
-    // ユーザーの履歴を初期化
     if (!userMessageHistory.has(userId)) {
         userMessageHistory.set(userId, []);
     }
 
     const history = userMessageHistory.get(userId);
-
-    // 古い履歴を削除（5秒以上前のものを削除）
     const cleanHistory = history.filter(
         (entry) => now - entry.timestamp < SPAM_THRESHOLD_TIME_MS,
     );
 
-    // 現在のメッセージを含めて類似度チェック
-    let similarCount = 1; // 現在のメッセージを含む
+    let similarCount = 1;
 
     for (const entry of cleanHistory) {
         const similarity = stringSimilarity.compareTwoStrings(
@@ -697,7 +750,6 @@ client.on("messageCreate", async (msg) => {
         }
     }
 
-    // 現在のメッセージを履歴に追加
     cleanHistory.push({ content: msg.content, timestamp: now });
     userMessageHistory.set(userId, cleanHistory);
 
@@ -705,7 +757,6 @@ client.on("messageCreate", async (msg) => {
         `ユーザー ${msg.author.username}: 類似メッセージ数 = ${similarCount}`,
     );
 
-    // スパム検知：類似メッセージが閾値以上の場合
     if (similarCount >= SPAM_THRESHOLD_MESSAGES) {
         console.log(
             `スパム検知！ユーザー: ${msg.author.username}, 類似メッセージ数: ${similarCount}`,
@@ -713,21 +764,18 @@ client.on("messageCreate", async (msg) => {
         try {
             await msg.delete();
 
-            // Muted_AuAuロールを取得または作成
             let muteRole = msg.guild.roles.cache.find(
                 (role) => role.name === "Muted_AuAu",
             );
 
             if (!muteRole) {
-                // ロールが存在しない場合、作成する
                 muteRole = await msg.guild.roles.create({
                     name: "Muted_AuAu",
-                    color: "#808080", // グレー色
+                    color: "#808080",
                     reason: "スパム対策用ミュートロール",
                 });
                 console.log(`Muted_AuAuロールを作成しました`);
 
-                // 全チャンネルに対してミュートロールの権限を設定
                 msg.guild.channels.cache.forEach(async (channel) => {
                     if (
                         channel.type === ChannelType.GuildText ||
@@ -755,7 +803,6 @@ client.on("messageCreate", async (msg) => {
                 });
             }
 
-            // ユーザーにミュートロールを付与
             const member = msg.guild.members.cache.get(msg.author.id);
             if (member && !member.roles.cache.has(muteRole.id)) {
                 await member.roles.add(muteRole);
@@ -768,26 +815,20 @@ client.on("messageCreate", async (msg) => {
                 `${msg.author} 類似メッセージの連投を検知しました（${similarCount}件）\n` +
                     `自動的にミュートロールが付与されました。管理者にお問い合わせください。`,
             );
-            setTimeout(() => warn.delete().catch(() => {}), 10000); // 10秒後に削除
+            setTimeout(() => warn.delete().catch(() => {}), 10000);
 
-            // スパム検知後は以降の処理をスキップ
             return;
         } catch (err) {
             console.error("スパム処理失敗:", err);
         }
     }
 
-    // スパム検知を通過した場合、他の処理を実行
     await processNonSpamMessage(msg);
 });
 
 // スパム検知以外のメッセージ処理を行う関数
 async function processNonSpamMessage(msg) {
-
-    // メッセージ内容を小文字に変換して、大文字・小文字を区別しない検索を可能にする
     const messageContentLower = msg.content.toLowerCase();
-
-    // 指定された単語リストのいずれかがメッセージに含まれているかチェックするヘルパー関数
     const containsAnyWord = (wordList) =>
         wordList.some((word) =>
             messageContentLower.includes(word.toLowerCase()),
@@ -796,7 +837,6 @@ async function processNonSpamMessage(msg) {
     if (msg.content === "!ping") {
         msg.reply("Botは応答してるよ!");
     } else if (msg.content.startsWith("!unmute")) {
-        // 管理者権限をチェック
         if (!msg.member.permissions.has("MANAGE_ROLES")) {
             msg.reply("このコマンドを使用する権限がありません。");
             return;
@@ -841,31 +881,27 @@ async function processNonSpamMessage(msg) {
             msg.reply("ミュートの解除に失敗しました。");
         }
     } else if (containsAnyWord(homo_words)) {
-        // homo_words が含まれていてもメッセージは削除せず、返信のみを行う
         msg.reply(":warning: 淫夢発言を検知しました！！ :warning:");
     } else if (containsAnyWord(soudayo)) {
         msg.reply("そうだよ(便乗)");
     } else if (containsAnyWord(abunai_words)) {
         try {
-            // ユーザーのメッセージを削除する前に警告メッセージを送信
-            // warningMessage変数にボットが送ったメッセージが格納される
             const warningMessage = await msg.reply(
                 `:warning: 危険発言を検知しました！！:warning:\nhttps://i.imgur.com/IEq6RPc.jpeg`,
             );
-            // 3秒後にユーザーの元のメッセージを削除
             setTimeout(() => {
                 msg.delete().catch((err) =>
                     console.error("元のメッセージの削除に失敗しました:", err),
                 );
             }, 100);
-            // 以前あった warningMessage.delete() の行を削除しました。
-            // これでボットの警告メッセージは残ります。
         } catch (error) {
             console.error(
                 "危険発言を含むメッセージの処理中にエラーが発生しました:",
                 error,
             );
         }
+    } else if (containsAnyWord(KAIJIDANA)) {
+        msg.reply("https://i.imgur.com/kSCMoPg.jpeg");
     }
 }
 

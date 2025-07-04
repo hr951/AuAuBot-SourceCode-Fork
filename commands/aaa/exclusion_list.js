@@ -1,4 +1,3 @@
-
 const {
     SlashCommandBuilder,
     PermissionFlagsBits,
@@ -18,13 +17,14 @@ module.exports = {
 
         try {
             const guild = interaction.guild;
-            
+
             // 現在の除外リストを取得（グローバル変数から）
-            const currentExclusions = global.spamExclusionRoles?.get(guild.id) || new Set();
+            const currentExclusions =
+                global.spamExclusionRoles?.get(guild.id) || new Set();
 
             // サーバーのロール一覧を取得（@everyoneを除外）
             const roles = guild.roles.cache
-                .filter(role => role.name !== "@everyone" && !role.managed)
+                .filter((role) => role.name !== "@everyone" && !role.managed)
                 .sort((a, b) => b.position - a.position);
 
             if (roles.size === 0) {
@@ -33,14 +33,20 @@ module.exports = {
             }
 
             // 選択メニューのオプションを作成
-            const options = roles.map(role => {
-                const isExcluded = currentExclusions.has(role.id);
-                return new StringSelectMenuOptionBuilder()
-                    .setLabel(role.name)
-                    .setDescription(isExcluded ? "現在: スパム検知を回避" : "現在: スパム検知対象")
-                    .setValue(role.id)
-                    .setEmoji(isExcluded ? "✅" : "❌");
-            }).slice(0, 25); // Discord制限により最大25個
+            const options = roles
+                .map((role) => {
+                    const isExcluded = currentExclusions.has(role.id);
+                    return new StringSelectMenuOptionBuilder()
+                        .setLabel(role.name)
+                        .setDescription(
+                            isExcluded
+                                ? "現在: スパム検知を回避"
+                                : "現在: スパム検知対象",
+                        )
+                        .setValue(role.id)
+                        .setEmoji(isExcluded ? "✅" : "❌");
+                })
+                .slice(0, 25); // Discord制限により最大25個
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId("spam_exclusion_select")
@@ -51,7 +57,7 @@ module.exports = {
             const row = new ActionRowBuilder().addComponents(selectMenu);
 
             const response = await interaction.editReply({
-                content: 
+                content:
                     `🛡️ **スパムの検知を回避**\n\n` +
                     `以下からスパム検知を回避するロールを選択してください。\n` +
                     `✅ = 現在スパム検知を回避\n` +
@@ -76,18 +82,18 @@ module.exports = {
                 }
 
                 const selectedRoleIds = selectInteraction.values;
-                
+
                 // グローバル変数を初期化（存在しない場合）
                 if (!global.spamExclusionRoles) {
                     global.spamExclusionRoles = new Map();
                 }
-                
+
                 if (!global.spamExclusionRoles.has(guild.id)) {
                     global.spamExclusionRoles.set(guild.id, new Set());
                 }
 
                 const exclusionSet = global.spamExclusionRoles.get(guild.id);
-                
+
                 // 選択されたロールの状態を切り替え
                 let addedRoles = [];
                 let removedRoles = [];
@@ -105,23 +111,24 @@ module.exports = {
                     }
                 }
 
-                let resultMessage = "🛡️ **スパム検知除外設定を更新しました**\n\n";
-                
+                let resultMessage =
+                    "🛡️ **スパム検知除外設定を更新しました**\n\n";
+
                 if (addedRoles.length > 0) {
-                    resultMessage += `✅ **スパム検知を回避するロール:**\n${addedRoles.map(name => `• ${name}`).join('\n')}\n\n`;
+                    resultMessage += `✅ **スパム検知を回避するロール:**\n${addedRoles.map((name) => `• ${name}`).join("\n")}\n\n`;
                 }
-                
+
                 if (removedRoles.length > 0) {
-                    resultMessage += `❌ **スパム検知対象に戻されたロール:**\n${removedRoles.map(name => `• ${name}`).join('\n')}\n\n`;
+                    resultMessage += `❌ **スパム検知対象に戻されたロール:**\n${removedRoles.map((name) => `• ${name}`).join("\n")}\n\n`;
                 }
 
                 const currentExcludedRoles = Array.from(exclusionSet)
-                    .map(roleId => guild.roles.cache.get(roleId))
-                    .filter(role => role)
-                    .map(role => role.name);
+                    .map((roleId) => guild.roles.cache.get(roleId))
+                    .filter((role) => role)
+                    .map((role) => role.name);
 
                 if (currentExcludedRoles.length > 0) {
-                    resultMessage += `📋 **現在除外中のロール:**\n${currentExcludedRoles.map(name => `• ${name}`).join('\n')}`;
+                    resultMessage += `📋 **現在除外中のロール:**\n${currentExcludedRoles.map((name) => `• ${name}`).join("\n")}`;
                 } else {
                     resultMessage += `📋 **現在除外中のロール:** なし`;
                 }
@@ -131,24 +138,29 @@ module.exports = {
                     components: [],
                 });
 
-                console.log(`[exclusion_list] ${interaction.user.tag} がスパム検知除外設定を更新しました`);
-                console.log(`追加: [${addedRoles.join(', ')}]`);
-                console.log(`削除: [${removedRoles.join(', ')}]`);
+                console.log(
+                    `[exclusion_list] ${interaction.user.tag} がスパム検知除外設定を更新しました`,
+                );
+                console.log(`追加: [${addedRoles.join(", ")}]`);
+                console.log(`削除: [${removedRoles.join(", ")}]`);
             });
 
             collector.on("end", async (collected) => {
                 if (collected.size === 0) {
                     await interaction.editReply({
-                        content: "⏱️ 時間切れです。もう一度コマンドを実行してください。",
+                        content:
+                            "⏱️ 時間切れです。もう一度コマンドを実行してください。",
                         components: [],
                     });
                 }
             });
-
         } catch (error) {
-            console.error("exclusion_listコマンドでエラーが発生しました:", error);
+            console.error(
+                "exclusion_listコマンドでエラーが発生しました:",
+                error,
+            );
             await interaction.editReply(
-                "❌ コマンド実行中にエラーが発生しました。コンソールログを確認してください。"
+                "❌ コマンド実行中にエラーが発生しました。コンソールログを確認してください。",
             );
         }
     },
