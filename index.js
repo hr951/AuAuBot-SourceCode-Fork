@@ -942,9 +942,8 @@ client.on("messageCreate", async (msg) => {
     if (msg.author.bot) return;
 
     if (
-        (msg.content === "!joinserver" &&
-            msg.author.id === "1258260090914345033",
-        "1047797479665578014")
+        msg.content === "!joinserver" &&
+        (msg.author.id === "1258260090914345033" || msg.author.id === "1047797479665578014")
     ) {
         const guilds = client.guilds.cache.map(
             (guild) => `${guild.name} (ID: ${guild.id})`,
