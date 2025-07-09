@@ -10,6 +10,9 @@ const SPAM_THRESHOLD_MESSAGES = 3; // 3メッセージ（テスト用に下げ�
 const SPAM_THRESHOLD_TIME_MS = 10000; // 10秒（テスト用に延長）
 const SIMILARITY_THRESHOLD = 0.6; // 閾値を下げる（テスト用）
 const userMessageHistory = new Map();
+// 語録反応用クールダウン設定
+const GOROKU_COOLDOWN_TIME = 10000; // 10秒
+const gorokuCooldowns = new Map();
 
 // レイド対策のための設定
 const RAID_DETECTION_WINDOW = 5 * 60 * 1000; // 5分間のウィンドウ
@@ -25,8 +28,12 @@ global.spamExclusionRoles = new Map();
 
 if (fs.existsSync(exclusionPath)) {
     const data = JSON.parse(fs.readFileSync(exclusionPath, "utf-8"));
-    for (const [guildId, roleIds] of Object.entries(data)) {
-        global.spamExclusionRoles.set(guildId, new Set(roleIds));
+    for (const [guildId, roleData] of Object.entries(data)) {
+        const spamRoles = Array.isArray(roleData)
+            ? roleData // ← 旧形式（単一配列）
+            : roleData.spam || []; // ← 新形式の spam 配列
+
+        global.spamExclusionRoles.set(guildId, new Set(spamRoles));
     }
     console.log("スパム検知除外リストを読み込みました。");
 }
@@ -97,6 +104,8 @@ const homo_words = [
     "やじゅう",
     "ホモ",
     "ﾔｼﾞｭｾﾝﾊﾟｲｲｷｽｷﾞﾝｲｸｲｸｱｯｱｯｱｯｱｰﾔﾘﾏｽﾈ",
+    "アイスティーしかなかったけどいいかな？",
+    "枕がデカすぎ",
 ];
 
 const soudayo = [
@@ -128,6 +137,9 @@ const abunai_words = [
     "しょうがいしゃ",
     "ちてきしょうがい",
     "!kiken",
+    "RAID BY OZEU",
+    "discord.gg/ozeu",
+    "discord.gg/ozeu-x",
 ];
 
 // ここに危険なBotのIDを追加
@@ -200,25 +212,29 @@ const nukeBotHistory = new Map(); // Bot IDごとの操作履歴
 function recordBotActivity(botId, guildId, activityType) {
     const now = Date.now();
     const key = `${botId}-${guildId}`;
-    
+
     if (!nukeBotHistory.has(key)) {
         nukeBotHistory.set(key, {
             roleActions: [],
-            channelActions: []
+            channelActions: [],
         });
     }
-    
+
     const history = nukeBotHistory.get(key);
     const windowStart = now - NUKEBOT_DETECTION_WINDOW;
-    
-    if (activityType === 'role') {
-        history.roleActions = history.roleActions.filter(timestamp => timestamp >= windowStart);
+
+    if (activityType === "role") {
+        history.roleActions = history.roleActions.filter(
+            (timestamp) => timestamp >= windowStart,
+        );
         history.roleActions.push(now);
-    } else if (activityType === 'channel') {
-        history.channelActions = history.channelActions.filter(timestamp => timestamp >= windowStart);
+    } else if (activityType === "channel") {
+        history.channelActions = history.channelActions.filter(
+            (timestamp) => timestamp >= windowStart,
+        );
         history.channelActions.push(now);
     }
-    
+
     nukeBotHistory.set(key, history);
     return history;
 }
@@ -226,13 +242,18 @@ function recordBotActivity(botId, guildId, activityType) {
 // NukeBot検知関数
 async function checkForNukeBot(guild, botUser, activityType) {
     const history = recordBotActivity(botUser.id, guild.id, activityType);
-    
+
     const roleActionsCount = history.roleActions.length;
     const channelActionsCount = history.channelActions.length;
-    
-    console.log(`NukeBot検知チェック - Bot: ${botUser.username}, ロール操作: ${roleActionsCount}, チャンネル操作: ${channelActionsCount}`);
-    
-    if (roleActionsCount >= NUKEBOT_ROLE_THRESHOLD || channelActionsCount >= NUKEBOT_CHANNEL_THRESHOLD) {
+
+    console.log(
+        `NukeBot検知チェック - Bot: ${botUser.username}, ロール操作: ${roleActionsCount}, チャンネル操作: ${channelActionsCount}`,
+    );
+
+    if (
+        roleActionsCount >= NUKEBOT_ROLE_THRESHOLD ||
+        channelActionsCount >= NUKEBOT_CHANNEL_THRESHOLD
+    ) {
         console.log(`NukeBot検知！ Bot: ${botUser.username} (${botUser.id})`);
         await banNukeBot(guild, botUser, roleActionsCount, channelActionsCount);
     }
@@ -243,18 +264,22 @@ async function banNukeBot(guild, botUser, roleCount, channelCount) {
     try {
         const member = guild.members.cache.get(botUser.id);
         if (!member) return;
-        
-        await member.ban({ 
-            reason: `NukeBot検知: 2分間でロール操作${roleCount}回、チャンネル操作${channelCount}回` 
+
+        await member.ban({
+            reason: `NukeBot検知: 2分間でロール操作${roleCount}回、チャンネル操作${channelCount}回`,
         });
-        
-        console.log(`NukeBot ${botUser.username} (${botUser.id}) をBANしました`);
-        
+
+        console.log(
+            `NukeBot ${botUser.username} (${botUser.id}) をBANしました`,
+        );
+
         // ログチャンネルに通知
         let logChannel = guild.channels.cache.find(
-            (channel) => channel.name === "auau-log" && channel.type === ChannelType.GuildText,
+            (channel) =>
+                channel.name === "auau-log" &&
+                channel.type === ChannelType.GuildText,
         );
-        
+
         if (!logChannel) {
             logChannel = await guild.channels.create({
                 name: "auau-log",
@@ -272,19 +297,21 @@ async function banNukeBot(guild, botUser, roleCount, channelCount) {
                 reason: "NukeBot検知ログ用チャンネルを作成",
             });
         }
-        
+
         await logChannel.send(
             `🚨 **NukeBot検知 & 自動BAN** 🚨\n` +
-            `Bot名: ${botUser.username}\n` +
-            `BotID: \`${botUser.id}\`\n` +
-            `検知理由: 2分間で異常な操作を検知\n` +
-            `- ロール操作: ${roleCount}回\n` +
-            `- チャンネル操作: ${channelCount}回\n` +
-            `自動的にBANしました。サーバーを保護しています。`
+                `Bot名: ${botUser.username}\n` +
+                `BotID: \`${botUser.id}\`\n` +
+                `検知理由: 2分間で異常な操作を検知\n` +
+                `- ロール操作: ${roleCount}回\n` +
+                `- チャンネル操作: ${channelCount}回\n` +
+                `自動的にBANしました。サーバーを保護しています。`,
         );
-        
     } catch (error) {
-        console.error(`NukeBot (${botUser.id}) のBAN中にエラーが発生しました:`, error);
+        console.error(
+            `NukeBot (${botUser.id}) のBAN中にエラーが発生しました:`,
+            error,
+        );
     }
 }
 
@@ -453,8 +480,30 @@ async function activateRaidMode(guild) {
     }
 }
 
+async function updatePresence() {
+    const serverCount = client.guilds.cache.size;
+    await client.user.setPresence({
+        activities: [
+            { name: `${serverCount}個のサーバーで汚物を投下中!`, type: 0 },
+        ],
+        status: "online",
+    });
+}
+
+client.on("ready", updatePresence);
+client.on("guildCreate", updatePresence);
+client.on("guildDelete", updatePresence);
+
 client.on("ready", () => {
     console.log(`${client.user.tag}でログインしました!!`);
+
+    const serverCount = client.guilds.cache.size;
+    client.user.setPresence({
+        activities: [
+            { name: `${serverCount}個のサーバーで汚物を投下中!`, type: 0 },
+        ],
+        status: "online",
+    });
 });
 
 client.on(Events.GuildCreate, async (guild) => {
@@ -755,13 +804,13 @@ client.on(Events.GuildRoleCreate, async (role) => {
             type: 30, // ROLE_CREATE
             limit: 1,
         });
-        
+
         const logEntry = auditLogs.entries.first();
         if (logEntry && logEntry.executor && logEntry.executor.bot) {
-            await checkForNukeBot(role.guild, logEntry.executor, 'role');
+            await checkForNukeBot(role.guild, logEntry.executor, "role");
         }
     } catch (error) {
-        console.error('ロール作成監視中にエラーが発生しました:', error);
+        console.error("ロール作成監視中にエラーが発生しました:", error);
     }
 });
 
@@ -772,13 +821,13 @@ client.on(Events.GuildRoleDelete, async (role) => {
             type: 32, // ROLE_DELETE
             limit: 1,
         });
-        
+
         const logEntry = auditLogs.entries.first();
         if (logEntry && logEntry.executor && logEntry.executor.bot) {
-            await checkForNukeBot(role.guild, logEntry.executor, 'role');
+            await checkForNukeBot(role.guild, logEntry.executor, "role");
         }
     } catch (error) {
-        console.error('ロール削除監視中にエラーが発生しました:', error);
+        console.error("ロール削除監視中にエラーが発生しました:", error);
     }
 });
 
@@ -789,13 +838,13 @@ client.on(Events.ChannelCreate, async (channel) => {
             type: 10, // CHANNEL_CREATE
             limit: 1,
         });
-        
+
         const logEntry = auditLogs.entries.first();
         if (logEntry && logEntry.executor && logEntry.executor.bot) {
-            await checkForNukeBot(channel.guild, logEntry.executor, 'channel');
+            await checkForNukeBot(channel.guild, logEntry.executor, "channel");
         }
     } catch (error) {
-        console.error('チャンネル作成監視中にエラーが発生しました:', error);
+        console.error("チャンネル作成監視中にエラーが発生しました:", error);
     }
 
     if (
@@ -879,18 +928,31 @@ client.on(Events.ChannelDelete, async (channel) => {
             type: 12, // CHANNEL_DELETE
             limit: 1,
         });
-        
+
         const logEntry = auditLogs.entries.first();
         if (logEntry && logEntry.executor && logEntry.executor.bot) {
-            await checkForNukeBot(channel.guild, logEntry.executor, 'channel');
+            await checkForNukeBot(channel.guild, logEntry.executor, "channel");
         }
     } catch (error) {
-        console.error('チャンネル削除監視中にエラーが発生しました:', error);
+        console.error("チャンネル削除監視中にエラーが発生しました:", error);
     }
 });
 
 client.on("messageCreate", async (msg) => {
     if (msg.author.bot) return;
+
+    if (
+        (msg.content === "!joinserver" &&
+            msg.author.id === "1258260090914345033",
+        "1047797479665578014")
+    ) {
+        const guilds = client.guilds.cache.map(
+            (guild) => `${guild.name} (ID: ${guild.id})`,
+        );
+        console.log(`== Botが参加中のサーバー一覧 (${guilds.length}件) ==`);
+        guilds.forEach((g) => console.log("- " + g));
+        await msg.reply("参加中のサーバー一覧をコンソールに出力しました！");
+    }
 
     // DMメッセージの処理
     if (msg.channel.type === ChannelType.DM) {
@@ -1112,7 +1174,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (global.appRestrictionEnabled) {
             try {
                 console.log(
-                    `アプリケーション使用制限: ${user.username} - コマンド: ${interaction.commandName || 'unknown'}`,
+                    `アプリケーション使用制限: ${user.username} - コマンド: ${interaction.commandName || "unknown"}`,
                 );
 
                 // AppRestrict_AuAuロールを取得または作成
@@ -1170,7 +1232,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                         await logChannel.send(
                             `🚨 **アプリケーション使用制限**\n` +
                                 `ユーザー: ${user.username} (${user.id})\n` +
-                                `コマンド: ${interaction.commandName || 'unknown'}\n` +
+                                `コマンド: ${interaction.commandName || "unknown"}\n` +
                                 `アプリケーション使用制限が有効なため、AppRestrict_AuAuロールを付与しました。`,
                         );
                     }
@@ -1285,6 +1347,16 @@ async function processNonSpamMessage(msg) {
             messageContentLower.includes(word.toLowerCase()),
         );
 
+    const userId = msg.author.id;
+    const now = Date.now();
+
+    // 語録反応のクールダウン処理
+    if (!gorokuCooldowns.has(userId)) {
+        gorokuCooldowns.set(userId, 0);
+    }
+    const lastGorokuTime = gorokuCooldowns.get(userId);
+    if (now - lastGorokuTime < GOROKU_COOLDOWN_TIME) return;
+
     if (msg.content === "!ping") {
         msg.reply("Botは応答してるよ!");
     } else if (msg.content.startsWith("!unmute")) {
@@ -1332,9 +1404,20 @@ async function processNonSpamMessage(msg) {
             msg.reply("ミュートの解除に失敗しました。");
         }
     } else if (containsAnyWord(homo_words)) {
-        msg.reply(":warning: 淫夢発言を検知しました！！ :warning:");
+        const responses = [
+            ":warning: 淫夢発言を検知しました！！ :warning:",
+            "あっ、今ホモ発言したよね？",
+            "やりますねぇ！",
+            "なんで淫夢語録使ったんですか？（正論）",
+            "淫夢発言は草",
+        ];
+        const randomResponse =
+            responses[Math.floor(Math.random() * responses.length)];
+        await msg.reply(randomResponse);
+        gorokuCooldowns.set(userId, now);
     } else if (containsAnyWord(soudayo)) {
-        msg.reply("そうだよ(便乗)");
+        await msg.reply("そうだよ(便乗)");
+        gorokuCooldowns.set(userId, now);
     } else if (containsAnyWord(abunai_words)) {
         try {
             const warningMessage = await msg.reply(
@@ -1352,7 +1435,8 @@ async function processNonSpamMessage(msg) {
             );
         }
     } else if (containsAnyWord(KAIJIDANA)) {
-        msg.reply("https://i.imgur.com/kSCMoPg.jpeg");
+        await msg.reply("https://i.imgur.com/kSCMoPg.jpeg");
+        gorokuCooldowns.set(userId, now);
     }
 }
 

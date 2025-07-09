@@ -12,7 +12,7 @@ const path = require("node:path");
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("exclusion_list")
-        .setDescription("スパム検知を回避するロールを設定します")
+        .setDescription("検知を回避するロールを設定します")
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
     async execute(interaction) {
         await interaction.deferReply({ ephemeral: true });
@@ -20,11 +20,16 @@ module.exports = {
         try {
             const guild = interaction.guild;
 
-            // 現在の除外リストを取得（グローバル変数から）
-            const currentExclusions =
-                global.spamExclusionRoles?.get(guild.id) || new Set();
+            const existingData = global.exclusionRoles || new Map();
+            global.exclusionRoles = existingData;
 
-            // サーバーのロール一覧を取得（@everyoneを除外）
+            const current = existingData.get(guild.id) || {
+                spam: new Set(),
+                profanity: new Set(),
+                inmu: new Set(),
+            };
+
+            // 全ロール取得
             const roles = guild.roles.cache
                 .filter((role) => role.name !== "@everyone" && !role.managed)
                 .sort((a, b) => b.position - a.position);
@@ -34,44 +39,39 @@ module.exports = {
                 return;
             }
 
-            // 選択メニューのオプションを作成
-            const options = roles
-                .map((role) => {
-                    const isExcluded = currentExclusions.has(role.id);
+            const makeOptions = (set, label) =>
+                roles.map((role) => {
+                    const included = set.has(role.id);
                     return new StringSelectMenuOptionBuilder()
-                        .setLabel(role.name)
-                        .setDescription(
-                            isExcluded
-                                ? "現在: スパム検知を回避"
-                                : "現在: スパム検知対象",
-                        )
-                        .setValue(role.id)
-                        .setEmoji(isExcluded ? "✅" : "❌");
-                })
-                .slice(0, 25); // Discord制限により最大25個
+                        .setLabel(`[${label}] ${role.name}`)
+                        .setDescription(included ? "現在: 回避" : "現在: 対象")
+                        .setValue(`${label}:${role.id}`)
+                        .setEmoji(included ? "✅" : "❌");
+                });
 
-            const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId("spam_exclusion_select")
-                .setPlaceholder("スパム検知を回避するロールを選択してください")
+            const options = [
+                ...makeOptions(current.spam, "spam"),
+                ...makeOptions(current.profanity, "profanity"),
+                ...makeOptions(current.inmu, "inmu"),
+            ].slice(0, 25);
+
+            const menu = new StringSelectMenuBuilder()
+                .setCustomId("multi_exclusion_select")
+                .setPlaceholder("検知を回避するロールを選択してください")
                 .addOptions(options)
                 .setMaxValues(options.length);
 
-            const row = new ActionRowBuilder().addComponents(selectMenu);
+            const row = new ActionRowBuilder().addComponents(menu);
 
             const response = await interaction.editReply({
                 content:
-                    `🛡️ **スパムの検知を回避**\n\n` +
-                    `以下からスパム検知を回避するロールを選択してください。\n` +
-                    `✅ = 現在スパム検知を回避\n` +
-                    `❌ = 現在スパム検知対象\n\n` +
-                    `選択したロールの状態が切り替わります。`,
+                    "以下の検知をロールごとに回避設定できます（✅ = 回避中）",
                 components: [row],
             });
 
-            // 選択メニューの応答を待機
             const collector = response.createMessageComponentCollector({
                 componentType: ComponentType.StringSelect,
-                time: 60000, // 60秒でタイムアウト
+                time: 60000,
             });
 
             collector.on("collect", async (selectInteraction) => {
@@ -83,89 +83,38 @@ module.exports = {
                     return;
                 }
 
-                const selectedRoleIds = selectInteraction.values;
-
-                // グローバル変数を初期化（存在しない場合）
-                if (!global.spamExclusionRoles) {
-                    global.spamExclusionRoles = new Map();
-                }
-
-                if (!global.spamExclusionRoles.has(guild.id)) {
-                    global.spamExclusionRoles.set(guild.id, new Set());
-                }
-
-                const exclusionSet = global.spamExclusionRoles.get(guild.id);
-
-                // 選択されたロールの状態を切り替え
-                let addedRoles = [];
-                let removedRoles = [];
-
-                for (const roleId of selectedRoleIds) {
-                    const role = guild.roles.cache.get(roleId);
-                    if (!role) continue;
-
-                    if (exclusionSet.has(roleId)) {
-                        exclusionSet.delete(roleId);
-                        removedRoles.push(role.name);
+                for (const value of selectInteraction.values) {
+                    const [type, roleId] = value.split(":");
+                    const set = current[type];
+                    if (!set) continue;
+                    if (set.has(roleId)) {
+                        set.delete(roleId);
                     } else {
-                        exclusionSet.add(roleId);
-                        addedRoles.push(role.name);
+                        set.add(roleId);
                     }
                 }
 
-                let resultMessage =
-                    "🛡️ **スパム検知除外設定を更新しました**\n\n";
+                existingData.set(guild.id, current);
 
-                if (addedRoles.length > 0) {
-                    resultMessage += `✅ **スパム検知を回避するロール:**\n${addedRoles.map((name) => `• ${name}`).join("\n")}\n\n`;
+                // 保存
+                const dataToSave = {};
+                for (const [guildId, sets] of existingData.entries()) {
+                    dataToSave[guildId] = {
+                        spam: Array.from(sets.spam),
+                        profanity: Array.from(sets.profanity),
+                        inmu: Array.from(sets.inmu),
+                    };
                 }
-
-                if (removedRoles.length > 0) {
-                    resultMessage += `❌ **スパム検知対象に戻されたロール:**\n${removedRoles.map((name) => `• ${name}`).join("\n")}\n\n`;
-                }
-
-                const currentExcludedRoles = Array.from(exclusionSet)
-                    .map((roleId) => guild.roles.cache.get(roleId))
-                    .filter((role) => role)
-                    .map((role) => role.name);
-
-                if (currentExcludedRoles.length > 0) {
-                    resultMessage += `📋 **現在除外中のロール:**\n${currentExcludedRoles.map((name) => `• ${name}`).join("\n")}`;
-                } else {
-                    resultMessage += `📋 **現在除外中のロール:** なし`;
-                }
-
-                // 設定をJSONファイルに保存
-                try {
-                    const exclusionPath = "./exclusion_roles.json";
-                    let allExclusionData = {};
-                    
-                    // 既存のファイルを読み込み
-                    if (fs.existsSync(exclusionPath)) {
-                        allExclusionData = JSON.parse(fs.readFileSync(exclusionPath, "utf-8"));
-                    }
-                    
-                    // 現在のサーバーのデータを更新
-                    allExclusionData[guild.id] = Array.from(exclusionSet);
-                    
-                    // ファイルに保存
-                    fs.writeFileSync(exclusionPath, JSON.stringify(allExclusionData, null, 2));
-                    
-                    console.log(`[exclusion_list] 設定をファイルに保存しました`);
-                } catch (error) {
-                    console.error(`[exclusion_list] 設定の保存に失敗しました:`, error);
-                }
+                fs.writeFileSync(
+                    "./exclusion_roles.json",
+                    JSON.stringify(dataToSave, null, 2),
+                );
 
                 await selectInteraction.update({
-                    content: resultMessage,
+                    content:
+                        "設定を更新しました。もう一度実行して確認できます。",
                     components: [],
                 });
-
-                console.log(
-                    `[exclusion_list] ${interaction.user.tag} がスパム検知除外設定を更新しました`,
-                );
-                console.log(`追加: [${addedRoles.join(", ")}]`);
-                console.log(`削除: [${removedRoles.join(", ")}]`);
             });
 
             collector.on("end", async (collected) => {
@@ -183,7 +132,7 @@ module.exports = {
                 error,
             );
             await interaction.editReply(
-                "❌ コマンド実行中にエラーが発生しました。コンソールログを確認してください。",
+                "❌ コマンド実行中にエラーが発生しました。",
             );
         }
     },
