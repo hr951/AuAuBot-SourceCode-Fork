@@ -1,22 +1,20 @@
-
 const {
     SlashCommandBuilder,
     PermissionFlagsBits,
     StringSelectMenuBuilder,
     StringSelectMenuOptionBuilder,
     ActionRowBuilder,
-    ComponentType,
     ButtonBuilder,
     ButtonStyle,
 } = require("discord.js");
 const fs = require("node:fs");
-const path = require("node:path");
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("exclusion_list")
         .setDescription("検知を回避するロールを設定します")
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
+
     async execute(interaction) {
         await interaction.deferReply({ ephemeral: true });
 
@@ -30,9 +28,9 @@ module.exports = {
                 spam: new Set(),
                 profanity: new Set(),
                 inmu: new Set(),
+                link: new Set(),
             };
 
-            // 全ロール取得
             const roles = guild.roles.cache
                 .filter((role) => role.name !== "@everyone" && !role.managed)
                 .sort((a, b) => b.position - a.position);
@@ -42,7 +40,6 @@ module.exports = {
                 return;
             }
 
-            // 各カテゴリごとにロールオプションを作成
             const makeOptionsForCategory = (set, label) =>
                 roles.map((role) => {
                     const included = set.has(role.id);
@@ -58,28 +55,31 @@ module.exports = {
                 ...makeOptionsForCategory(current.spam, "spam"),
                 ...makeOptionsForCategory(current.profanity, "profanity"),
                 ...makeOptionsForCategory(current.inmu, "inmu"),
+                ...makeOptionsForCategory(current.link, "link"),
             ];
 
-            // ページ分割（1ページあたり25個まで）
             const itemsPerPage = 25;
             const totalPages = Math.ceil(allOptions.length / itemsPerPage);
             let currentPage = 0;
 
             const createMenuForPage = (page) => {
-                const startIndex = page * itemsPerPage;
-                const endIndex = Math.min(startIndex + itemsPerPage, allOptions.length);
-                const pageOptions = allOptions.slice(startIndex, endIndex);
+                const pageOptions = allOptions.slice(
+                    page * itemsPerPage,
+                    (page + 1) * itemsPerPage,
+                );
 
                 const menu = new StringSelectMenuBuilder()
                     .setCustomId("multi_exclusion_select")
-                    .setPlaceholder(`検知を回避するロールを選択 (${page + 1}/${totalPages}ページ)`)
-                    .addOptions(pageOptions.map(opt => 
-                        new StringSelectMenuOptionBuilder()
-                            .setLabel(opt.label)
-                            .setDescription(opt.description)
-                            .setValue(opt.value)
-                            .setEmoji(opt.emoji)
-                    ))
+                    .setPlaceholder(`ロールを選択 (${page + 1}/${totalPages})`)
+                    .addOptions(
+                        pageOptions.map((opt) =>
+                            new StringSelectMenuOptionBuilder()
+                                .setLabel(opt.label)
+                                .setDescription(opt.description)
+                                .setValue(opt.value)
+                                .setEmoji(opt.emoji),
+                        ),
+                    )
                     .setMaxValues(pageOptions.length);
 
                 return menu;
@@ -93,7 +93,7 @@ module.exports = {
                         new ButtonBuilder()
                             .setCustomId("prev_page")
                             .setLabel("◀ 前のページ")
-                            .setStyle(ButtonStyle.Secondary)
+                            .setStyle(ButtonStyle.Secondary),
                     );
                 }
 
@@ -102,7 +102,7 @@ module.exports = {
                         .setCustomId("page_info")
                         .setLabel(`${page + 1}/${totalPages}`)
                         .setStyle(ButtonStyle.Primary)
-                        .setDisabled(true)
+                        .setDisabled(true),
                 );
 
                 if (page < totalPages - 1) {
@@ -110,7 +110,7 @@ module.exports = {
                         new ButtonBuilder()
                             .setCustomId("next_page")
                             .setLabel("次のページ ▶")
-                            .setStyle(ButtonStyle.Secondary)
+                            .setStyle(ButtonStyle.Secondary),
                     );
                 }
 
@@ -120,29 +120,20 @@ module.exports = {
             const updateMessage = async (page, targetInteraction) => {
                 const menu = createMenuForPage(page);
                 const buttons = createButtons(page);
-                
+
                 const components = [new ActionRowBuilder().addComponents(menu)];
                 if (totalPages > 1) {
-                    components.push(new ActionRowBuilder().addComponents(buttons));
+                    components.push(
+                        new ActionRowBuilder().addComponents(buttons),
+                    );
                 }
 
-                const content = 
-                    `以下の検知をロールごとに回避設定できます（✅ = 回避中）\n` +
-                    `**spam**: スパム検知回避\n` +
-                    `**profanity**: 危険発言検知回避\n` +
-                    `**inmu**: 淫夢語録反応回避\n\n` +
-                    `現在のページ: ${page + 1}/${totalPages}`;
+                const content = `以下の検知をロールごとに回避設定できます（✅ = 回避中）\n\n現在のページ: ${page + 1}/${totalPages}`;
 
                 if (targetInteraction.deferred || targetInteraction.replied) {
-                    await targetInteraction.editReply({
-                        content,
-                        components,
-                    });
+                    await targetInteraction.editReply({ content, components });
                 } else {
-                    await targetInteraction.update({
-                        content,
-                        components,
-                    });
+                    await targetInteraction.update({ content, components });
                 }
             };
 
@@ -150,7 +141,7 @@ module.exports = {
 
             const response = await interaction.fetchReply();
             const collector = response.createMessageComponentCollector({
-                time: 300000, // 5分に延長
+                time: 300000,
             });
 
             collector.on("collect", async (componentInteraction) => {
@@ -171,33 +162,29 @@ module.exports = {
                         await updateMessage(currentPage, componentInteraction);
                     }
                 } else if (componentInteraction.isStringSelectMenu()) {
-                    // ロール設定の更新
                     for (const value of componentInteraction.values) {
                         const [type, roleId] = value.split(":");
                         const set = current[type];
                         if (!set) continue;
-                        if (set.has(roleId)) {
-                            set.delete(roleId);
-                        } else {
-                            set.add(roleId);
-                        }
+                        if (set.has(roleId)) set.delete(roleId);
+                        else set.add(roleId);
                     }
 
                     existingData.set(guild.id, current);
+                    global.exclusionRoles = existingData;
 
-                    // グローバル変数の更新
-                    if (!global.spamExclusionRoles) {
+                    // スパム除外だけは専用Mapにも同期
+                    if (!global.spamExclusionRoles)
                         global.spamExclusionRoles = new Map();
-                    }
                     global.spamExclusionRoles.set(guild.id, current.spam);
 
-                    // ファイル保存
                     const dataToSave = {};
                     for (const [guildId, sets] of existingData.entries()) {
                         dataToSave[guildId] = {
                             spam: Array.from(sets.spam),
                             profanity: Array.from(sets.profanity),
                             inmu: Array.from(sets.inmu),
+                            link: Array.from(sets.link),
                         };
                     }
                     fs.writeFileSync(
@@ -205,36 +192,23 @@ module.exports = {
                         JSON.stringify(dataToSave, null, 2),
                     );
 
-                    // オプションを再生成
-                    const updatedOptions = [
-                        ...makeOptionsForCategory(current.spam, "spam"),
-                        ...makeOptionsForCategory(current.profanity, "profanity"),
-                        ...makeOptionsForCategory(current.inmu, "inmu"),
-                    ];
-                    allOptions.splice(0, allOptions.length, ...updatedOptions);
-
                     await componentInteraction.reply({
-                        content: "✅ 設定を更新しました！変更が反映されています。",
+                        content: "✅ 設定を更新しました！",
                         ephemeral: true,
                     });
 
-                    // メニューを更新して変更を反映
                     await updateMessage(currentPage, interaction);
                 }
             });
 
-            collector.on("end", async (collected) => {
-                try {
-                    await interaction.editReply({
-                        content: "⏱️ メニューの有効期限が切れました。再度コマンドを実行してください。",
-                        components: [],
-                    });
-                } catch (error) {
-                    console.error("メニュー終了処理でエラー:", error);
-                }
+            collector.on("end", async () => {
+                await interaction.editReply({
+                    content: "⏱️ メニューの有効期限が切れました。",
+                    components: [],
+                });
             });
         } catch (error) {
-            console.error("exclusion_listコマンドでエラーが発生しました:", error);
+            console.error("エラー:", error);
             await interaction.editReply(
                 "❌ コマンド実行中にエラーが発生しました。",
             );

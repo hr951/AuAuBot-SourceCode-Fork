@@ -4,6 +4,7 @@ const token = process.env.DISCORD_TOKEN;
 const fs = require("node:fs");
 const path = require("node:path");
 const exclusionPath = "./exclusion_roles.json";
+const authPanel = require("./commands/aaa/auth-panel.js");
 
 // スパム検知のための設定
 const SPAM_THRESHOLD_MESSAGES = 3; // 3メッセージ（テスト用に下げる）
@@ -67,6 +68,7 @@ const client = new Client({
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.DirectMessages, // DM受信のために追加
+        GatewayIntentBits.GuildVoiceStates,
     ],
 });
 
@@ -490,6 +492,40 @@ async function updatePresence() {
     });
 }
 
+function initializeExclusionRoles() {
+    try {
+        if (fs.existsSync("./exclusion_roles.json")) {
+            const data = JSON.parse(
+                fs.readFileSync("./exclusion_roles.json", "utf8"),
+            );
+            global.exclusionRoles = new Map();
+            global.spamExclusionRoles = new Map();
+
+            for (const [guildId, roles] of Object.entries(data)) {
+                const convertedRoles = {
+                    spam: new Set(roles.spam || []),
+                    profanity: new Set(roles.profanity || []),
+                    inmu: new Set(roles.inmu || []),
+                    link: new Set(roles.link || []),
+                };
+                global.exclusionRoles.set(guildId, convertedRoles);
+                global.spamExclusionRoles.set(guildId, convertedRoles.spam);
+            }
+            console.log("除外ロール設定を読み込みました");
+        } else {
+            global.exclusionRoles = new Map();
+            global.spamExclusionRoles = new Map();
+            console.log(
+                "除外ロール設定ファイルが見つかりません。新規作成します。",
+            );
+        }
+    } catch (error) {
+        console.error("除外ロール設定の読み込みに失敗しました:", error);
+        global.exclusionRoles = new Map();
+        global.spamExclusionRoles = new Map();
+    }
+}
+
 client.on("ready", updatePresence);
 client.on("guildCreate", updatePresence);
 client.on("guildDelete", updatePresence);
@@ -497,13 +533,23 @@ client.on("guildDelete", updatePresence);
 client.on("ready", () => {
     console.log(`${client.user.tag}でログインしました!!`);
 
-    const serverCount = client.guilds.cache.size;
-    client.user.setPresence({
-        activities: [
-            { name: `${serverCount}個のサーバーで汚物を投下中!`, type: 0 },
-        ],
-        status: "online",
-    });
+    initializeExclusionRoles();
+
+    const activities = [
+        () => `${client.guilds.cache.size}個のサーバーで汚物を投下中!`,
+        () => `導入は公式サイトから`,
+    ];
+
+    let index = 0;
+
+    setInterval(() => {
+        const status = activities[index % activities.length]();
+        client.user.setPresence({
+            activities: [{ name: status, type: 0 }],
+            status: "online",
+        });
+        index++;
+    }, 30000); // 5秒ごとに変更
 });
 
 client.on(Events.GuildCreate, async (guild) => {
@@ -652,58 +698,70 @@ const COMMAND_COOLDOWN_TIME = 15000; // 例: 3秒
 const commandCooldowns = new Map(); // userId -> { commandName -> lastExecuted }
 
 client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
-    const command = interaction.client.commands.get(interaction.commandName);
-
-    if (!command) {
-        console.error(
-            `${interaction.commandName}に一致するコマンドが見つかんなかったよ。`,
+    // スラッシュコマンドの処理
+    if (interaction.isChatInputCommand()) {
+        const command = interaction.client.commands.get(
+            interaction.commandName,
         );
-        return;
-    }
+        if (!command) {
+            console.error(
+                `${interaction.commandName} に一致するコマンドが見つかんなかっ ��よ。`,
+            );
+            return;
+        }
 
-    // クールダウンチェック
-    const userId = interaction.user.id;
-    const commandName = interaction.commandName;
-    const now = Date.now();
+        // クールダウンチェック
+        const userId = interaction.user.id;
+        const commandName = interaction.commandName;
+        const now = Date.now();
 
-    if (!commandCooldowns.has(userId)) {
-        commandCooldowns.set(userId, {});
-    }
+        if (!commandCooldowns.has(userId)) {
+            commandCooldowns.set(userId, {});
+        }
 
-    const userCooldowns = commandCooldowns.get(userId);
-    const lastExecuted = userCooldowns[commandName] || 0;
-    const timeDiff = now - lastExecuted;
+        const userCooldowns = commandCooldowns.get(userId);
+        const lastExecuted = userCooldowns[commandName] || 0;
+        const timeDiff = now - lastExecuted;
 
-    if (timeDiff < COMMAND_COOLDOWN_TIME) {
-        const remainingTime = Math.ceil(
-            (COMMAND_COOLDOWN_TIME - timeDiff) / 1000,
-        );
-        await interaction.reply({
-            content: `⏰ コマンドのクールダウン中です。あと ${remainingTime} 秒お待ちください。`,
-            flags: MessageFlags.Ephemeral,
-        });
-        return;
-    }
-
-    // クールダウンを更新
-    userCooldowns[commandName] = now;
-    commandCooldowns.set(userId, userCooldowns);
-
-    try {
-        await command.execute(interaction);
-    } catch (error) {
-        console.error(error);
-        if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({
-                content: "コマンド実行してるときにエラー出たんだってさ。",
-                flags: MessageFlags.Ephemeral,
-            });
-        } else {
+        if (timeDiff < COMMAND_COOLDOWN_TIME) {
+            const remainingTime = Math.ceil(
+                (COMMAND_COOLDOWN_TIME - timeDiff) / 1000,
+            );
             await interaction.reply({
-                content: "コマンド実行してるときにエラー出たんだってさ。",
-                flags: MessageFlags.Ephemeral,
+                content: `⏰ コマンドのクールダウン中です。あと ${remainingTime} 秒お待ちください。`,
+                ephemeral: true,
             });
+            return;
+        }
+
+        // クールダウンを更新
+        userCooldowns[commandName] = now;
+        commandCooldowns.set(userId, userCooldowns);
+
+        // コマンド実行
+        try {
+            await command.execute(interaction);
+        } catch (error) {
+            console.error(error);
+            const replyContent = {
+                content: "コマンド実行してるときにエラー出たんだってさ。",
+                ephemeral: true,
+            };
+            if (interaction.replied || interaction.deferred) {
+                await interaction.followUp(replyContent);
+            } else {
+                await interaction.reply(replyContent);
+            }
+        }
+    }
+
+    // ボタンやセレクトメニューの処理（別分岐）
+    else if (interaction.isButton() || interaction.isStringSelectMenu()) {
+        if (
+            interaction.customId === "start_auth" ||
+            interaction.customId === "auth_answer"
+        ) {
+            await authPanel.handleAuthInteraction(interaction);
         }
     }
 });
@@ -889,7 +947,7 @@ client.on(Events.ChannelCreate, async (channel) => {
                     CreatePrivateThreads: false,
                 });
                 console.log(
-                    `新しいチャンネル ${channel.name} にRaidGuard_AuAuロールの権限を設定しました`,
+                    `新しいチャンネル ${channel.name} にRaidGuard_AuAuロールの権限を  �定しました`,
                 );
             } catch (error) {
                 console.error(
@@ -938,105 +996,80 @@ client.on(Events.ChannelDelete, async (channel) => {
     }
 });
 
+// ファイルの上部に追加
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
 client.on("messageCreate", async (msg) => {
     if (msg.author.bot) return;
 
-    if (
-        msg.content === "!joinserver" &&
-        (msg.author.id === "1258260090914345033" || msg.author.id === "1047797479665578014")
-    ) {
-        const guilds = client.guilds.cache.map(
-            (guild) => `${guild.name} (ID: ${guild.id})`,
-        );
-        console.log(`== Botが参加中のサーバー一覧 (${guilds.length}件) ==`);
-        guilds.forEach((g) => console.log("- " + g));
-        await msg.reply("参加中のサーバー一覧をコンソールに出力しました！");
-    }
-
-    // DMメッセージの処理
-    if (msg.channel.type === ChannelType.DM) {
-        const args = msg.content.trim().split(/\s+/);
-        if (args.length === 3 && args[2] === "unmute_rec") {
-            const userId = args[0];
-            const guildId = args[1];
-
-            // 入力の検証
-            if (!/^\d{17,19}$/.test(userId) || !/^\d{17,19}$/.test(guildId)) {
-                await msg.reply(
-                    "無効なユーザーIDまたはサーバーIDです。正しい形式で入力してください。\n例: `123456789012345678 123456789012345678 unmute_rec`",
+    // ファクトチェック処理（スパム検知より前に実行）
+    if (msg.reference && msg.mentions.has(client.user)) {
+        if (
+            msg.content.includes("ファクトチェック") ||
+            msg.content.includes("factcheck")
+        ) {
+            try {
+                // リプライされたメッセージを取得
+                const repliedMessage = await msg.channel.messages.fetch(
+                    msg.reference.messageId,
                 );
+
+                if (
+                    !repliedMessage.content ||
+                    repliedMessage.content.trim().length === 0
+                ) {
+                    await msg.reply(
+                        "ファクトチェックできるテキストがありません。",
+                    );
+                    return;
+                }
+
+                // 処理中メッセージを送信
+                const processingMessage =
+                    await msg.reply("🔎 ファクトチェック中...");
+
+                const model = genAI.getGenerativeModel({
+                    model: "gemini-1.5-flash",
+                });
+                const result = await model.generateContent([
+                    "以下の文が事実かどうかファクトチェックしてください。簡潔に解説も添えてください。",
+                    repliedMessage.content,
+                ]);
+                const response = await result.response;
+                const text = response.text();
+
+                // 処理中メッセージを編集
+                await processingMessage.edit(
+                    `🔎 **ファクトチェック結果:**\n${text}`,
+                );
+
+                return; // ファクトチェック処理後はここで終了
+            } catch (error) {
+                console.error("FactCheck Error:", error);
+                if (error.code === 10008) {
+                    await msg.reply(
+                        "リプライされたメッセージが見つかりません。メッセージが削除されているか、古すぎる可能性があります。",
+                    );
+                } else {
+                    await msg.reply(
+                        "エラーが発生しました。もう一度お試しください。",
+                    );
+                }
                 return;
             }
-
-            try {
-                const guild = await client.guilds.fetch(guildId);
-                const member = await guild.members.fetch(userId);
-                const muteRole = guild.roles.cache.find(
-                    (role) => role.name === "Muted_AuAu",
-                );
-
-                if (!muteRole) {
-                    await msg.reply(
-                        `サーバー ${guild.name} にMuted_AuAuロールが見つかりません。`,
-                    );
-                    return;
-                }
-
-                if (!member.roles.cache.has(muteRole.id)) {
-                    await msg.reply(
-                        `${member.user.username} は既にミュートされていません。`,
-                    );
-                    return;
-                }
-
-                await member.roles.remove(muteRole);
-                await msg.reply(
-                    `${guild.name} の ${member.user.username} のミュートを解除しました。`,
-                );
-                console.log(
-                    `DM経由で ${guild.name} の ${member.user.username} のMuted_AuAuロールを解除しました`,
-                );
-
-                // ログチャンネルに通知
-                let logChannel = guild.channels.cache.find(
-                    (channel) =>
-                        channel.name === "auau-log" &&
-                        channel.type === ChannelType.GuildText,
-                );
-
-                if (logChannel) {
-                    await logChannel.send(
-                        `🔔 **ミュート解除通知**\n` +
-                            `ユーザー: ${member.user.username} (ID: ${userId})\n` +
-                            `DM経由でMuted_AuAuロールを解除しました。`,
-                    );
-                }
-            } catch (error) {
-                console.error(
-                    "DM経由のミュート解除中にエラーが発生しました:",
-                    error,
-                );
-                await msg.reply(
-                    "ミュート解除に失敗しました。ユーザーまたはサーバーが見つからないか、権限が不足しています。",
-                );
-            }
-        } else {
-            await msg.reply(
-                "無効なコマンドです。形式: `ユーザーID サーバーID unmute_rec`\n例: `123456789012345678 123456789012345678 unmute_rec`",
-            );
         }
-        return;
     }
 
-    // スパム検知除外ロールをチェック
-    const guildId = msg.guild.id;
-    const exclusionRoles = spamExclusionRoles.get(guildId);
+    // 除外ロールチェック（スパム検知回避）
+    const guildId = msg.guild?.id;
+    const exclusion = global.exclusionRoles?.get(guildId);
 
-    if (exclusionRoles && exclusionRoles.size > 0) {
+    if (exclusion && exclusion.spam?.size > 0) {
         const member = msg.guild.members.cache.get(msg.author.id);
         if (member) {
             const hasExclusionRole = member.roles.cache.some((role) =>
-                exclusionRoles.has(role.id),
+                exclusion.spam.has(role.id),
             );
             if (hasExclusionRole) {
                 console.log(
@@ -1048,6 +1081,7 @@ client.on("messageCreate", async (msg) => {
         }
     }
 
+    // スパム検知処理
     const userId = msg.author.id;
     const now = Date.now();
 
@@ -1086,6 +1120,7 @@ client.on("messageCreate", async (msg) => {
         console.log(
             `スパム検知！ユーザー: ${msg.author.username}, 類似メッセージ数: ${similarCount}`,
         );
+
         try {
             await msg.delete();
 
@@ -1099,7 +1134,6 @@ client.on("messageCreate", async (msg) => {
                     color: "#808080",
                     reason: "スパム対策用ミュートロール",
                 });
-                console.log(`Muted_AuAuロールを作成しました`);
 
                 msg.guild.channels.cache.forEach(async (channel) => {
                     if (
@@ -1148,6 +1182,7 @@ client.on("messageCreate", async (msg) => {
         }
     }
 
+    // 通常メッセージ処理
     await processNonSpamMessage(msg);
 });
 
@@ -1158,7 +1193,7 @@ global.appRestrictionEnabled = false;
 // アプリケーション使用検知とロール付与機能
 client.on(Events.InteractionCreate, async (interaction) => {
     // アプリケーションコマンドの使用を検知
-    if (interaction.isCommand() || interaction.isApplicationCommand()) {
+    if (interaction.isCommand()) {
         const user = interaction.user;
         const guild = interaction.guild;
 
