@@ -5,3 +5,7 @@ modules = ["nodejs-20", "python-3.11"]
 [[ports]]
 localPort = 4545
 externalPort = 80
+
+[[ports]]
+localPort = 34953
+externalPort = 3000

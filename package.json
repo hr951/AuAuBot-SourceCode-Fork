@@ -2,7 +2,7 @@
   "name": "auaubot",
   "version": "1.0.0",
   "scripts": {
-    "start": "node main.js",
+    "start": "node index.js",
     "deploy-commands": "node deploy-commands.js"
   },
   "dependencies": {
