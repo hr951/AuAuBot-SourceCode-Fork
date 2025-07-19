@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require("@discordjs/builders");
-const { QueryType } = require("discord-player");
+const { QueryType, useQueue } = require("discord-player");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -19,60 +19,26 @@ module.exports = {
       });
     }
 
-    const botVoiceChannelId = interaction.guild.members.me?.voice?.channelId;
-    const userVoiceChannelId = interaction.member.voice.channelId;
-
-    if (botVoiceChannelId && botVoiceChannelId !== userVoiceChannelId) {
-      return await interaction.reply({
-        content: "botと同じボイスチャンネルに参加してください",
-        ephemeral: true,
-      });
-    }
-
-    // キューを生成
-    const queue = client.player.createQueue(interaction.guild, {
-      metadata: {
-        channel: interaction.channel,
-      },
-    });
-
-    try {
-      if (!queue.connection) {
-        await queue.connect(interaction.member.voice.channel);
-      }
-    } catch {
-      queue.destroy();
-      return await interaction.reply({
-        content: "ボイスチャンネルに参加できませんでした",
-        ephemeral: true,
-      });
-    }
-
-    await interaction.deferReply();
-
     const url = interaction.options.getString("url");
 
-    const track = await client.player
-      .search(url, {
+    const { track } = await client.player.play(
+      interaction.member.voice.channel,
+      url,
+      {
+        nodeOptions: {
+          metadata: interaction,
+          leaveOnEnd: false,
+          leaveOnStop: false,
+          leaveOnEmpty: true,
+          volume: 80,
+        },
         requestedBy: interaction.user,
         searchEngine: QueryType.YOUTUBE_VIDEO,
-      })
-      .then((x) => x.tracks[0]);
+      },
+    );
 
-    if (!track) {
-      return await interaction.followUp({
-        content: "動画が見つかりませんでした",
-      });
-    }
-
-    await queue.addTrack(track);
-
-    if (!queue.playing) {
-      queue.play();
-    }
-
-    return await interaction.followUp({
-      content: `音楽をキューに追加しました **${track.title}**`,
+    return await interaction.reply({
+      content: `音楽を再生中: **${track.title}**`,
     });
   },
 };
