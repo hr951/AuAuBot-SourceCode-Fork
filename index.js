@@ -26,7 +26,7 @@ const userMessageData = new Map(); // Mapを使用してユーザーごとのデ
 const raidModeStatus = new Map(); // サーバーごとのレイドモード状態を追跡
 const express = require("express");
 const app = express();
-const PORT = process.env.PORT || 4545;
+const PORT = process.env.PORT;
 
 global.spamExclusionRoles = new Map();
 
@@ -481,7 +481,7 @@ async function activateRaidMode(guild) {
             );
         }
     } catch (error) {
-        console.error("レイドモード有効化中にエラーが発生しました:", error);
+        console.error("レイドモード有効化中にエn��ーが発生しました:", error);
     }
 }
 
