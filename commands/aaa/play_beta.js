@@ -9,7 +9,8 @@ module.exports = {
       option.setName("url").setDescription("YouTube URL").setRequired(true),
     ),
 
-  run: async ({ client, interaction }) => {
+  // ← run → execute に修正
+  execute: async ({ client, interaction }) => {
     if (!interaction.member.voice.channelId) {
       return await interaction.reply({
         content: "ボイスチャンネルに参加してください",
@@ -28,7 +29,6 @@ module.exports = {
       });
     }
 
-    // キューを生成
     const queue = client.player.createQueue(interaction.guild, {
       metadata: {
         channel: interaction.channel,
@@ -36,7 +36,6 @@ module.exports = {
     });
 
     try {
-      // VCに入ってない場合、VCに参加する
       if (!queue.connection) {
         await queue.connect(interaction.member.voice.channel);
       }
@@ -51,7 +50,6 @@ module.exports = {
     await interaction.deferReply();
 
     const url = interaction.options.getString("url");
-    // 入力されたURLからトラックを取得
     const track = await client.player
       .search(url, {
         requestedBy: interaction.user,
@@ -65,10 +63,8 @@ module.exports = {
       });
     }
 
-    // キューにトラックを追加
     await queue.addTrack(track);
 
-    // 音楽が再生中ではない場合、再生
     if (!queue.playing) {
       queue.play();
     }

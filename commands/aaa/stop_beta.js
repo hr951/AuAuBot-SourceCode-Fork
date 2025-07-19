@@ -2,10 +2,11 @@ const { SlashCommandBuilder } = require("@discordjs/builders");
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("quit")
+    .setName("stop_beta")
     .setDescription("再生を停止してbotを終了します"),
 
-  run: async ({ client, interaction }) => {
+  // ← run → execute に修正
+  execute: async ({ client, interaction }) => {
     const queue = client.player.getQueue(interaction.guildId);
 
     if (!queue) {
