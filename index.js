@@ -1487,6 +1487,11 @@ app.get("/health", (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`HTTP server running on port ${PORT}`);
+}).on("error", (err) => {
+    // ★この部分を追加
+    console.error("Expressサーバーの起動に失敗しました:", err.message);
+    // 詳細なエラー情報が必要な場合、以下の行も有効にしてください
+    console.error(err.stack);
 });
 
 client.login(token);
