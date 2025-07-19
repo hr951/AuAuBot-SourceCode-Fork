@@ -7,7 +7,8 @@ const {
   VoiceConnectionStatus,
 } = require("@discordjs/voice");
 const youtubedl = require("youtube-dl-exec");
-
+const { spawn } = require("child_process");
+const path = require("path");
 
 // グローバルな音楽キューとプレイヤー管理
 if (!global.musicQueues) {
@@ -94,145 +95,48 @@ module.exports = {
       const isTikTok =
         url.includes("tiktok.com") || url.includes("vt.tiktok.com");
 
-      // TikTokの場合は特別な処理
-      if (isTikTok) {
-        try {
-          // TikTokの動画情報取得（より短いタイムアウト）
-          const info = await Promise.race([
-            youtubedl(url, {
-              dumpSingleJson: true,
-              noWarnings: true,
-              noCallHome: true,
-              noCheckCertificate: true,
-              preferFreeFormats: true,
-              noPlaylist: true,
-              ignoreErrors: true,
-              // TikTok用の追加オプション
-              addHeader: [
-                "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-              ],
-              referer: "https://www.tiktok.com/",
-            }),
-            new Promise((_, reject) =>
-              setTimeout(
-                () =>
-                  reject(
-                    new Error("TikTok動画情報の取得がタイムアウトしました"),
-                  ),
-                15000, // TikTokは15秒でタイムアウト
-              ),
-            ),
-          ]);
-
-          // TikTok動画の検証
-          if (!info || (!info.formats && !info.url)) {
-            throw new Error("TikTok動画の情報を取得できませんでした");
-          }
-
-          const title =
-            info.title || info.description?.slice(0, 100) || "TikTok動画";
-          const thumbnail = info.thumbnail || info.thumbnails?.[0]?.url || null;
-          const duration = info.duration ? Math.floor(info.duration) : null;
-          const uploader =
-            info.uploader || info.uploader_id || "TikTokユーザー";
-
-          console.log("TikTok動画情報取得完了:", title);
-
-          const songInfo = {
-            url,
-            title,
-            thumbnail,
-            duration,
-            uploader,
-            requester: interaction.user.id,
-            requesterName: interaction.user.displayName,
-            isTikTok: true,
-          };
-
-          await this.addToQueueAndPlay(interaction, voiceChannel, songInfo);
-        } catch (tiktokError) {
-          console.error("TikTok処理エラー:", tiktokError);
-
-          // TikTokエラーの詳細な処理
-          let errorMessage = "TikTok動画の再生に失敗しました。";
-
-          if (tiktokError.message.includes("タイムアウト")) {
-            errorMessage =
-              "TikTok動画の読み込みがタイムアウトしました。動画が長すぎるか、サーバーが応答しない可能性があります。";
-          } else if (
-            tiktokError.message.includes("Private") ||
-            tiktokError.message.includes("unavailable")
-          ) {
-            errorMessage =
-              "この動画は非公開か削除されているため再生できません。";
-          } else if (
-            tiktokError.message.includes("region") ||
-            tiktokError.message.includes("geo")
-          ) {
-            errorMessage = "地域制限により、この動画は再生できません。";
-          } else {
-            errorMessage =
-              "TikTok動画の処理中にエラーが発生しました。他のプラットフォームの動画をお試しください。";
-          }
-
-          return await interaction.editReply(errorMessage);
-        }
-      } else {
-        // 通常の動画情報を取得（YouTube、ニコニコ動画など）
-        console.log("動画情報を取得中...");
-        const info = await Promise.race([
-          youtubedl(url, {
-            dumpSingleJson: true,
-            noWarnings: true,
-            noCallHome: true,
-            noCheckCertificate: true,
-            preferFreeFormats: true,
-            youtubeSkipDashManifest: true,
-            noPlaylist: true,
-            ignoreErrors: true,
-          }),
-          new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error("動画情報の取得がタイムアウトしました")),
-              30000,
-            ),
-          ),
-        ]);
-
-        const title = info.title || "タイトル不明";
-        const thumbnail = info.thumbnail || info.thumbnails?.[0]?.url || null;
-        const duration = info.duration ? Math.floor(info.duration) : null;
-        const uploader = info.uploader || info.channel || "投稿者不明";
-
-        console.log("動画情報取得完了:", title);
-
-        const songInfo = {
-          url,
-          title,
-          thumbnail,
-          duration,
-          uploader,
-          requester: interaction.user.id,
-          requesterName: interaction.user.displayName,
-          isTikTok: false,
-        };
+      // 修正: より安全な動画情報取得
+      let songInfo;
+      try {
+        songInfo = await this.getVideoInfo(url, isTikTok);
+        songInfo.requester = interaction.user.id;
+        songInfo.requesterName = interaction.user.displayName;
+        songInfo.isTikTok = isTikTok;
 
         await this.addToQueueAndPlay(interaction, voiceChannel, songInfo);
+      } catch (infoError) {
+        console.error("動画情報取得エラー:", infoError);
+
+        // フォールバック: 基本的な情報で試行
+        const fallbackInfo = {
+          url,
+          title: isTikTok ? "TikTok動画" : "動画",
+          thumbnail: null,
+          duration: null,
+          uploader: isTikTok ? "TikTokユーザー" : "不明",
+          requester: interaction.user.id,
+          requesterName: interaction.user.displayName,
+          isTikTok,
+        };
+
+        console.log("フォールバック情報で再試行します");
+        await this.addToQueueAndPlay(interaction, voiceChannel, fallbackInfo);
       }
     } catch (error) {
       console.error("音楽再生エラー:", error);
 
       let errorMessage = "音楽の再生中にエラーが発生しました。";
 
-      if (error.message.includes("タイムアウト")) {
+      if (error.message.includes("This content isn't available")) {
+        errorMessage =
+          "この動画は現在利用できません。削除されたか、地域制限がある可能性があります。";
+      } else if (error.message.includes("タイムアウト")) {
         errorMessage =
           "動画の読み込みに時間がかかりすぎています。別のURLを試してください。";
       } else if (error.message.includes("Video unavailable")) {
         errorMessage = "この動画は利用できません。別のURLを試してください。";
       } else if (error.message.includes("Private video")) {
         errorMessage = "プライベート動画は再生できません。";
-      } else if (error.message.includes("Requested format is not available")) {
-        errorMessage = "このフォーマットは利用できません。";
       }
 
       try {
@@ -241,6 +145,102 @@ module.exports = {
         console.error("リプライエラー:", replyError);
       }
     }
+  },
+
+  // 修正: より堅牢な動画情報取得メソッド
+  async getVideoInfo(url, isTikTok) {
+    const maxRetries = 3;
+    let lastError;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`動画情報取得試行 ${attempt}/${maxRetries}`);
+
+        // Render環境に最適化されたオプション
+        const baseOptions = {
+          dumpSingleJson: true,
+          noWarnings: true,
+          noCallHome: true,
+          noCheckCertificate: true,
+          preferFreeFormats: true,
+          noPlaylist: true,
+          ignoreErrors: true,
+          // Render環境での安定性向上
+          socketTimeout: 30,
+          retries: 2,
+        };
+
+        let options;
+        if (isTikTok) {
+          options = {
+            ...baseOptions,
+            addHeader: [
+              "User-Agent:Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            ],
+            referer: "https://www.tiktok.com/",
+          };
+        } else {
+          options = {
+            ...baseOptions,
+            youtubeSkipDashManifest: true,
+            // YouTube用の追加オプション
+            extractFlat: false,
+          };
+        }
+
+        // タイムアウトを設定
+        const timeout = isTikTok ? 20000 : 30000;
+        const info = await Promise.race([
+          youtubedl(url, options),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("動画情報取得タイムアウト")),
+              timeout,
+            ),
+          ),
+        ]);
+
+        if (!info) {
+          throw new Error("動画情報を取得できませんでした");
+        }
+
+        const title =
+          info.title ||
+          info.description?.slice(0, 100) ||
+          (isTikTok ? "TikTok動画" : "動画");
+        const thumbnail =
+          info.thumbnail ||
+          (info.thumbnails && info.thumbnails.length > 0
+            ? info.thumbnails[0].url
+            : null);
+        const duration = info.duration ? Math.floor(info.duration) : null;
+        const uploader =
+          info.uploader ||
+          info.channel ||
+          info.uploader_id ||
+          (isTikTok ? "TikTokユーザー" : "不明");
+
+        return {
+          url,
+          title,
+          thumbnail,
+          duration,
+          uploader,
+        };
+      } catch (error) {
+        lastError = error;
+        console.error(`試行 ${attempt} 失敗:`, error.message);
+
+        if (attempt < maxRetries) {
+          // 再試行前に少し待機
+          await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+        }
+      }
+    }
+
+    throw new Error(
+      `動画情報の取得に失敗しました (${maxRetries}回試行): ${lastError.message}`,
+    );
   },
 
   async addToQueueAndPlay(interaction, voiceChannel, songInfo) {
@@ -305,11 +305,10 @@ module.exports = {
     const queue = global.musicQueues.get(guildId);
 
     if (!queue || queue.length === 0) {
-      // キューが空の場合
       return;
     }
 
-    const songInfo = queue.shift(); // キューから最初の曲を取得
+    const songInfo = queue.shift();
 
     try {
       // ボイスチャンネルに接続
@@ -323,59 +322,10 @@ module.exports = {
         global.musicConnections.set(guildId, connection);
       }
 
-      // 音声ストリームを作成
-      let streamOptions;
-      let stream;
+      // 修正: より安全なストリーミング方式
+      const stream = await this.createAudioStream(songInfo);
 
-      if (songInfo.isTikTok) {
-        // TikTok用の特別なストリーミング設定
-        streamOptions = {
-          output: "-",
-          format: "best[height<=720][ext=mp4]/best[ext=mp4]/best",
-          noWarnings: true,
-          noCallHome: true,
-          noCheckCertificate: true,
-          noPlaylist: true,
-          ignoreErrors: true,
-          extractFlat: false,
-          writeInfoJson: false,
-          // TikTok用追加設定
-          addHeader: [
-            "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-          ],
-          referer: "https://www.tiktok.com/",
-          retries: 3,
-        };
-
-        // TikTokストリーミングをタイムアウトで制限
-        const streamPromise = youtubedl.exec(songInfo.url, streamOptions);
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error("TikTokストリーム作成タイムアウト")),
-            20000,
-          ),
-        );
-
-        stream = await Promise.race([streamPromise, timeoutPromise]);
-      } else {
-        streamOptions = {
-          output: "-",
-          format: "bestaudio/best",
-          audioFormat: "wav",
-          audioQuality: "0",
-          noWarnings: true,
-          noCallHome: true,
-          noCheckCertificate: true,
-          noPlaylist: true,
-          preferFreeFormats: true,
-          ignoreErrors: true,
-        };
-
-        stream = youtubedl.exec(songInfo.url, streamOptions);
-      }
-
-      // オーディオリソースを作成
-      const resource = createAudioResource(stream.stdout, {
+      const resource = createAudioResource(stream, {
         inputType: "arbitrary",
         inlineVolume: false,
         metadata: {
@@ -397,7 +347,6 @@ module.exports = {
 
         player.on(AudioPlayerStatus.Idle, () => {
           console.log("音楽の再生が終了しました");
-          // 次の曲を再生
           setTimeout(() => {
             this.playNextSong(interaction, voiceChannel);
           }, 1000);
@@ -405,7 +354,6 @@ module.exports = {
 
         player.on("error", (error) => {
           console.error("プレイヤーエラー:", error);
-          // エラー時は次の曲を再生を試行
           setTimeout(() => {
             const currentQueue = global.musicQueues.get(guildId);
             if (currentQueue && currentQueue.length > 0) {
@@ -415,16 +363,6 @@ module.exports = {
         });
       }
 
-      // 接続エラーハンドリング
-      connection.on(VoiceConnectionStatus.Disconnected, () => {
-        console.log("ボイスチャンネルから切断されました");
-      });
-
-      connection.on("error", (error) => {
-        console.error("接続エラー:", error);
-      });
-
-      // 接続にプレイヤーを設定
       connection.subscribe(player);
 
       // 現在再生中の曲情報を保存
@@ -433,7 +371,6 @@ module.exports = {
       }
       global.currentSongs.set(guildId, songInfo);
 
-      // 音楽を再生
       player.play(resource);
 
       // 再生開始メッセージを送信
@@ -451,7 +388,7 @@ module.exports = {
           { name: "チャンネル", value: `<#${voiceChannel.id}>`, inline: true },
         )
         .setFooter({
-          text: `キューに${queue.length}曲待機中 | 音楽を停止するには /leave コマンドを使用してください`,
+          text: `キューに${queue.length}曲待機中`,
         });
 
       if (songInfo.thumbnail) {
@@ -468,27 +405,12 @@ module.exports = {
         });
       }
 
-      // TikTokの場合は特別な注意書きを追加
-      if (songInfo.isTikTok) {
-        embed.setFooter({
-          text: `キューに${queue.length}曲待機中 | TikTok動画は音質が制限される場合があります`,
-        });
-      }
-
       await interaction.editReply({ content: null, embeds: [embed] });
     } catch (error) {
       console.error("再生エラー:", error);
 
-      // エラーメッセージを詳細に分類
-      let errorMessage = "再生中にエラーが発生しました。";
+      let errorMessage = `「${songInfo.title}」の再生に失敗しました。次の曲をスキップします。`;
 
-      if (songInfo.isTikTok) {
-        errorMessage = `TikTok動画「${songInfo.title}」の再生に失敗しました。次の曲をスキップします。`;
-      } else {
-        errorMessage = `「${songInfo.title}」の再生に失敗しました。次の曲をスキップします。`;
-      }
-
-      // エラーメッセージを送信（可能であれば）
       try {
         const errorEmbed = new EmbedBuilder()
           .setTitle("⚠️ 再生エラー")
@@ -500,7 +422,7 @@ module.exports = {
         console.error("フォローアップエラー:", followUpError);
       }
 
-      // エラー時は次の曲を再生
+      // 次の曲を再生
       setTimeout(() => {
         const currentQueue = global.musicQueues.get(guildId);
         if (currentQueue && currentQueue.length > 0) {
@@ -508,5 +430,70 @@ module.exports = {
         }
       }, 2000);
     }
+  },
+
+  // 修正: Render環境に最適化されたストリーミング
+  async createAudioStream(songInfo) {
+    const maxRetries = 2;
+    let lastError;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`ストリーム作成試行 ${attempt}/${maxRetries}`);
+
+        let streamOptions;
+        if (songInfo.isTikTok) {
+          streamOptions = {
+            output: "-",
+            format: "best[height<=480]/best",
+            noWarnings: true,
+            noCallHome: true,
+            noCheckCertificate: true,
+            noPlaylist: true,
+            ignoreErrors: true,
+            addHeader: [
+              "User-Agent:Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+            ],
+            referer: "https://www.tiktok.com/",
+            retries: 1,
+            socketTimeout: 20,
+          };
+        } else {
+          streamOptions = {
+            output: "-",
+            format: "bestaudio[ext=webm]/bestaudio/best",
+            noWarnings: true,
+            noCallHome: true,
+            noCheckCertificate: true,
+            noPlaylist: true,
+            preferFreeFormats: true,
+            ignoreErrors: true,
+            retries: 1,
+            socketTimeout: 30,
+          };
+        }
+
+        const timeout = songInfo.isTikTok ? 25000 : 35000;
+
+        return await Promise.race([
+          youtubedl.exec(songInfo.url, streamOptions),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("ストリーム作成タイムアウト")),
+              timeout,
+            ),
+          ),
+        ]);
+      } catch (error) {
+        lastError = error;
+        console.error(`ストリーム作成試行 ${attempt} 失敗:`, error.message);
+
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        }
+      }
+    }
+
+    throw new Error(`ストリーム作成に失敗しました: ${lastError.message}`);
   },
 };
