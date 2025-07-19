@@ -9,26 +9,27 @@ module.exports = {
       option.setName("url").setDescription("YouTube URL").setRequired(true),
     ),
 
-  // ← run → execute に修正
-  execute: async ({ client, interaction }) => {
-    if (!interaction.member.voice.channelId) {
+  execute: async (interaction) => {
+    const client = interaction.client;
+
+    if (!interaction.member?.voice?.channelId) {
       return await interaction.reply({
         content: "ボイスチャンネルに参加してください",
         ephemeral: true,
       });
     }
 
-    if (
-      interaction.guild.me.voice.channelId &&
-      interaction.member.voice.channelId !==
-        interaction.guild.me.voice.channelId
-    ) {
+    const botVoiceChannelId = interaction.guild.members.me?.voice?.channelId;
+    const userVoiceChannelId = interaction.member.voice.channelId;
+
+    if (botVoiceChannelId && botVoiceChannelId !== userVoiceChannelId) {
       return await interaction.reply({
         content: "botと同じボイスチャンネルに参加してください",
         ephemeral: true,
       });
     }
 
+    // キューを生成
     const queue = client.player.createQueue(interaction.guild, {
       metadata: {
         channel: interaction.channel,
@@ -50,6 +51,7 @@ module.exports = {
     await interaction.deferReply();
 
     const url = interaction.options.getString("url");
+
     const track = await client.player
       .search(url, {
         requestedBy: interaction.user,
