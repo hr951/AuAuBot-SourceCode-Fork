@@ -29,8 +29,6 @@ const raidModeStatus = new Map(); // サーバーごとのレイドモード状�
 const express = require("express");
 const app = express();
 const PORT = process.env.PORT;
-const player = new Player(client);
-client.player = player;
 
 console.log("[CHECK] Renderから渡されたPORT:", PORT);
 
@@ -85,6 +83,8 @@ client.commands = new Collection();
 
 const foldersPath = path.join(__dirname, "commands");
 const commandFolders = fs.readdirSync(foldersPath);
+const player = new Player(client);
+client.player = player;
 
 for (const folder of commandFolders) {
     const commandsPath = path.join(foldersPath, folder);
