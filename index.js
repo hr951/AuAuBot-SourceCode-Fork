@@ -1,4 +1,5 @@
 require("dotenv").config();
+console.log("[CHECK] index.js 開始");
 const stringSimilarity = require("string-similarity");
 const token = process.env.DISCORD_TOKEN;
 const fs = require("node:fs");
@@ -27,6 +28,8 @@ const raidModeStatus = new Map(); // サーバーごとのレイドモード状�
 const express = require("express");
 const app = express();
 const PORT = process.env.PORT;
+
+console.log("[CHECK] Renderから渡されたPORT:", PORT);
 
 global.spamExclusionRoles = new Map();
 
@@ -1477,21 +1480,19 @@ async function processNonSpamMessage(msg) {
     }
 }
 
+if (!PORT) {
+    console.error("[ERROR] RenderのPORTが定義されていません！");
+    process.exit(1);
+}
+
 app.get("/", (req, res) => {
-    res.send("Bot is running!");
+    res.send("AuAuBot Web Server 起動中！");
 });
 
-app.get("/health", (req, res) => {
-    res.json({ status: "ok", uptime: process.uptime() });
-});
+console.log("[CHECK] app.listen 実行直前");
 
 app.listen(PORT, () => {
-    console.log(`HTTP server running on port ${PORT}`);
-}).on("error", (err) => {
-    // ★この部分を追加
-    console.error("Expressサーバーの起動に失敗しました:", err.message);
-    // 詳細なエラー情報が必要な場合、以下の行も有効にしてください
-    console.error(err.stack);
+    console.log(`[CHECK] ✅ HTTP server running on port ${PORT}`);
 });
 
 client.login(token);
