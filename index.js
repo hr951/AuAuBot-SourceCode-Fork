@@ -1489,10 +1489,21 @@ app.get("/", (req, res) => {
     res.send("AuAuBot Web Server 起動中！");
 });
 
-console.log("[CHECK] app.listen 実行直前");
+client
+    .login(token)
+    .then(() => {
+        if (!PORT) {
+            console.error("[ERROR] RenderのPORTが定義されていません！");
+            process.exit(1);
+        }
 
-app.listen(PORT, () => {
-    console.log(`[CHECK] ✅ HTTP server running on port ${PORT}`);
-});
+        console.log("[CHECK] app.listen 実行直前");
 
-client.login(token);
+        app.listen(PORT, () => {
+            console.log(`[CHECK] ✅ HTTP server running on port ${PORT}`);
+        });
+    })
+    .catch((error) => {
+        console.error("[ERROR] Discordクライアントのログインに失敗:", error);
+        process.exit(1);
+    });
