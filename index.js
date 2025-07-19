@@ -24,6 +24,9 @@ const joinHistory = new Map(); // サーバーごとの参加履歴
 
 const userMessageData = new Map(); // Mapを使用してユーザーごとのデータを保存
 const raidModeStatus = new Map(); // サーバーごとのレイドモード状態を追跡
+const express = require("express");
+const app = express();
+const PORT = process.env.PORT || 4545;
 
 global.spamExclusionRoles = new Map();
 
@@ -1473,5 +1476,17 @@ async function processNonSpamMessage(msg) {
         gorokuCooldowns.set(userId, now);
     }
 }
+
+app.get("/", (req, res) => {
+    res.send("Bot is running!");
+});
+
+app.get("/health", (req, res) => {
+    res.json({ status: "ok", uptime: process.uptime() });
+});
+
+app.listen(PORT, () => {
+    console.log(`HTTP server running on port ${PORT}`);
+});
 
 client.login(token);
