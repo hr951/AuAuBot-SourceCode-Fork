@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const exclusionPath = "./exclusion_roles.json";
 const authPanel = require("./commands/aaa/auth-panel.js");
+const { Player } = require("discord-player");
 
 // スパム検知のための設定
 const SPAM_THRESHOLD_MESSAGES = 3; // 3メッセージ（テスト用に下げる）
@@ -28,6 +29,8 @@ const raidModeStatus = new Map(); // サーバーごとのレイドモード状�
 const express = require("express");
 const app = express();
 const PORT = process.env.PORT;
+const player = new Player(client);
+client.player = player;
 
 console.log("[CHECK] Renderから渡されたPORT:", PORT);
 
