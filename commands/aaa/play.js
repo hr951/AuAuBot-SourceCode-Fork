@@ -147,7 +147,7 @@ module.exports = {
     }
   },
 
-  // 修正: より堅牢な動画情報取得メソッド
+  // 修正: 最小限の安全なオプションを使用
   async getVideoInfo(url, isTikTok) {
     const maxRetries = 3;
     let lastError;
@@ -156,36 +156,18 @@ module.exports = {
       try {
         console.log(`動画情報取得試行 ${attempt}/${maxRetries}`);
 
-        // Render環境に最適化されたオプション
-        const baseOptions = {
+        // 最小限のオプションで試行
+        const options = {
           dumpSingleJson: true,
           noWarnings: true,
-          noCallHome: true,
-          noCheckCertificate: true,
-          preferFreeFormats: true,
-          noPlaylist: true,
           ignoreErrors: true,
-          // Render環境での安定性向上
-          socketTimeout: 30,
-          retries: 2,
         };
 
-        let options;
+        // TikTokの場合のみ追加オプション
         if (isTikTok) {
-          options = {
-            ...baseOptions,
-            addHeader: [
-              "User-Agent:Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            ],
-            referer: "https://www.tiktok.com/",
-          };
-        } else {
-          options = {
-            ...baseOptions,
-            youtubeSkipDashManifest: true,
-            // YouTube用の追加オプション
-            extractFlat: false,
-          };
+          options.addHeader = [
+            "User-Agent:Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+          ];
         }
 
         // タイムアウトを設定
@@ -441,36 +423,20 @@ module.exports = {
       try {
         console.log(`ストリーム作成試行 ${attempt}/${maxRetries}`);
 
-        let streamOptions;
+        // 最小限のオプションでストリーミング
+        let streamOptions = {
+          output: "-",
+          noWarnings: true,
+          ignoreErrors: true,
+        };
+
         if (songInfo.isTikTok) {
-          streamOptions = {
-            output: "-",
-            format: "best[height<=480]/best",
-            noWarnings: true,
-            noCallHome: true,
-            noCheckCertificate: true,
-            noPlaylist: true,
-            ignoreErrors: true,
-            addHeader: [
-              "User-Agent:Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-            ],
-            referer: "https://www.tiktok.com/",
-            retries: 1,
-            socketTimeout: 20,
-          };
+          streamOptions.format = "best[height<=480]/best";
+          streamOptions.addHeader = [
+            "User-Agent:Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+          ];
         } else {
-          streamOptions = {
-            output: "-",
-            format: "bestaudio[ext=webm]/bestaudio/best",
-            noWarnings: true,
-            noCallHome: true,
-            noCheckCertificate: true,
-            noPlaylist: true,
-            preferFreeFormats: true,
-            ignoreErrors: true,
-            retries: 1,
-            socketTimeout: 30,
-          };
+          streamOptions.format = "bestaudio/best";
         }
 
         const timeout = songInfo.isTikTok ? 25000 : 35000;
