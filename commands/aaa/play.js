@@ -92,38 +92,60 @@ module.exports = {
       // TikTokかどうかを判定
       const isTikTok =
         url.includes("tiktok.com") || url.includes("vt.tiktok.com");
+      const isYouTube = url.includes("youtube.com") || url.includes("youtu.be");
+
+      // YouTube用の基本オプション
+      const baseYouTubeOptions = {
+        dumpSingleJson: true,
+        noWarnings: true,
+        noCallHome: true,
+        noCheckCertificate: true,
+        preferFreeFormats: true,
+        noPlaylist: true,
+        ignoreErrors: true,
+        // YouTube対策のための追加オプション
+        addHeader: [
+          "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept-Language:en-US,en;q=0.9",
+          "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        ],
+        cookies: [],
+        retries: 5,
+        fragmentRetries: 5,
+        skipUnavailableFragments: true,
+        keepFragments: false,
+        // geo-bypass
+        geoBypass: true,
+        // IPv4を強制
+        forceIpv4: true,
+      };
 
       // TikTokの場合は特別な処理
       if (isTikTok) {
         try {
-          // TikTokの動画情報取得（より短いタイムアウト）
+          const tiktokOptions = {
+            ...baseYouTubeOptions,
+            // TikTok特有のオプション
+            referer: "https://www.tiktok.com/",
+            addHeader: [
+              "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              "Referer:https://www.tiktok.com/",
+            ],
+          };
+
           const info = await Promise.race([
-            youtubedl(url, {
-              dumpSingleJson: true,
-              noWarnings: true,
-              noCallHome: true,
-              noCheckCertificate: true,
-              preferFreeFormats: true,
-              noPlaylist: true,
-              ignoreErrors: true,
-              // TikTok用の追加オプション
-              addHeader: [
-                "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-              ],
-              referer: "https://www.tiktok.com/",
-            }),
+            youtubedl(url, tiktokOptions),
             new Promise((_, reject) =>
               setTimeout(
                 () =>
                   reject(
                     new Error("TikTok動画情報の取得がタイムアウトしました"),
                   ),
-                15000, // TikTokは15秒でタイムアウト
+                20000,
               ),
             ),
           ]);
 
-          // TikTok動画の検証
           if (!info || (!info.formats && !info.url)) {
             throw new Error("TikTok動画の情報を取得できませんでした");
           }
@@ -152,7 +174,6 @@ module.exports = {
         } catch (tiktokError) {
           console.error("TikTok処理エラー:", tiktokError);
 
-          // TikTokエラーの詳細な処理
           let errorMessage = "TikTok動画の再生に失敗しました。";
 
           if (tiktokError.message.includes("タイムアウト")) {
@@ -177,46 +198,92 @@ module.exports = {
           return await interaction.editReply(errorMessage);
         }
       } else {
-        // 通常の動画情報を取得（YouTube、ニコニコ動画など）
+        // YouTube, ニコニコ動画などの通常処理
         console.log("動画情報を取得中...");
-        const info = await Promise.race([
-          youtubedl(url, {
-            dumpSingleJson: true,
-            noWarnings: true,
-            noCallHome: true,
-            noCheckCertificate: true,
-            preferFreeFormats: true,
+
+        let options = baseYouTubeOptions;
+
+        // YouTubeの場合、さらに追加のオプション
+        if (isYouTube) {
+          options = {
+            ...baseYouTubeOptions,
             youtubeSkipDashManifest: true,
-            noPlaylist: true,
-            ignoreErrors: true,
-          }),
-          new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error("動画情報の取得がタイムアウトしました")),
-              30000,
+            // age-gateをバイパス
+            ageLimitBypass: true,
+            // より詳細なUser-Agent
+            addHeader: [
+              "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              "Accept-Language:en-US,en;q=0.9,ja;q=0.8",
+              "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+              "Accept-Encoding:gzip, deflate, br",
+              "DNT:1",
+              "Connection:keep-alive",
+            ],
+          };
+        }
+
+        try {
+          const info = await Promise.race([
+            youtubedl(url, options),
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error("動画情報の取得がタイムアウトしました")),
+                30000,
+              ),
             ),
-          ),
-        ]);
+          ]);
 
-        const title = info.title || "タイトル不明";
-        const thumbnail = info.thumbnail || info.thumbnails?.[0]?.url || null;
-        const duration = info.duration ? Math.floor(info.duration) : null;
-        const uploader = info.uploader || info.channel || "投稿者不明";
+          const title = info.title || "タイトル不明";
+          const thumbnail = info.thumbnail || info.thumbnails?.[0]?.url || null;
+          const duration = info.duration ? Math.floor(info.duration) : null;
+          const uploader = info.uploader || info.channel || "投稿者不明";
 
-        console.log("動画情報取得完了:", title);
+          console.log("動画情報取得完了:", title);
 
-        const songInfo = {
-          url,
-          title,
-          thumbnail,
-          duration,
-          uploader,
-          requester: interaction.user.id,
-          requesterName: interaction.user.displayName,
-          isTikTok: false,
-        };
+          const songInfo = {
+            url,
+            title,
+            thumbnail,
+            duration,
+            uploader,
+            requester: interaction.user.id,
+            requesterName: interaction.user.displayName,
+            isTikTok: false,
+          };
 
-        await this.addToQueueAndPlay(interaction, voiceChannel, songInfo);
+          await this.addToQueueAndPlay(interaction, voiceChannel, songInfo);
+        } catch (infoError) {
+          console.error("動画情報取得エラー:", infoError);
+
+          // より詳細なエラーハンドリング
+          let errorMessage = "動画情報の取得に失敗しました。";
+
+          if (
+            infoError.stderr &&
+            infoError.stderr.includes("This content isn't available")
+          ) {
+            errorMessage =
+              "この動画は利用できません。地域制限、年齢制限、または削除された可能性があります。";
+          } else if (
+            infoError.stderr &&
+            infoError.stderr.includes("Video unavailable")
+          ) {
+            errorMessage = "動画が見つかりません。URLを確認してください。";
+          } else if (
+            infoError.stderr &&
+            infoError.stderr.includes("Private video")
+          ) {
+            errorMessage = "プライベート動画は再生できません。";
+          } else if (infoError.message.includes("タイムアウト")) {
+            errorMessage =
+              "動画の読み込みに時間がかかりすぎています。別のURLを試してください。";
+          } else if (isYouTube) {
+            errorMessage =
+              "YouTube動画の処理に失敗しました。動画が制限されているか、一時的な問題の可能性があります。";
+          }
+
+          return await interaction.editReply(errorMessage);
+        }
       }
     } catch (error) {
       console.error("音楽再生エラー:", error);
@@ -226,7 +293,10 @@ module.exports = {
       if (error.message.includes("タイムアウト")) {
         errorMessage =
           "動画の読み込みに時間がかかりすぎています。別のURLを試してください。";
-      } else if (error.message.includes("Video unavailable")) {
+      } else if (
+        error.message.includes("Video unavailable") ||
+        error.message.includes("This content isn't available")
+      ) {
         errorMessage = "この動画は利用できません。別のURLを試してください。";
       } else if (error.message.includes("Private video")) {
         errorMessage = "プライベート動画は再生できません。";
@@ -340,7 +410,7 @@ module.exports = {
           writeInfoJson: false,
           // TikTok用追加設定
           addHeader: [
-            "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
           ],
           referer: "https://www.tiktok.com/",
           retries: 3,
@@ -351,24 +421,53 @@ module.exports = {
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(
             () => reject(new Error("TikTokストリーム作成タイムアウト")),
-            20000,
+            25000,
           ),
         );
 
         stream = await Promise.race([streamPromise, timeoutPromise]);
       } else {
-        streamOptions = {
-          output: "-",
-          format: "bestaudio/best",
-          audioFormat: "wav",
-          audioQuality: "0",
-          noWarnings: true,
-          noCallHome: true,
-          noCheckCertificate: true,
-          noPlaylist: true,
-          preferFreeFormats: true,
-          ignoreErrors: true,
-        };
+        // YouTube、ニコニコ動画などの通常のストリーミング
+        const isYouTube =
+          songInfo.url.includes("youtube.com") ||
+          songInfo.url.includes("youtu.be");
+
+        if (isYouTube) {
+          streamOptions = {
+            output: "-",
+            format: "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
+            audioFormat: "wav",
+            audioQuality: "0",
+            noWarnings: true,
+            noCallHome: true,
+            noCheckCertificate: true,
+            noPlaylist: true,
+            preferFreeFormats: true,
+            ignoreErrors: true,
+            // YouTube用追加オプション
+            addHeader: [
+              "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            ],
+            geoBypass: true,
+            forceIpv4: true,
+            retries: 5,
+            fragmentRetries: 5,
+            skipUnavailableFragments: true,
+          };
+        } else {
+          streamOptions = {
+            output: "-",
+            format: "bestaudio/best",
+            audioFormat: "wav",
+            audioQuality: "0",
+            noWarnings: true,
+            noCallHome: true,
+            noCheckCertificate: true,
+            noPlaylist: true,
+            preferFreeFormats: true,
+            ignoreErrors: true,
+          };
+        }
 
         stream = youtubedl.exec(songInfo.url, streamOptions);
       }
