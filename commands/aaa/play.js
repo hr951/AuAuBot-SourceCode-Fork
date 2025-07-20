@@ -10,6 +10,19 @@ const youtubedl = require("youtube-dl-exec");
 const { spawn } = require("child_process");
 const path = require("path");
 
+function loadCookiePath() {
+  const cookiePath = "/tmp/youtube_cookies.txt"; // Renderで使う場所
+  if (fs.existsSync(cookiePath)) {
+    console.log("✅ Cookieファイルが見つかりました:", cookiePath);
+    return cookiePath;
+  } else {
+    console.warn("⚠️ Cookieファイルが存在しません:", cookiePath);
+    return null;
+  }
+}
+
+const cookieFile = loadCookiePath();
+
 // グローバルな音楽キューとプレイヤー管理
 if (!global.musicQueues) {
   global.musicQueues = new Map();
@@ -305,14 +318,19 @@ module.exports = {
       }
 
       // 修正: より安全なストリーミング方式
-      const stream = youtubedl.exec(songInfo.url, {
+      const execOptions = {
   output: "-",
-  format: "bestaudio/best",
-        cookies: "/tmp/youtube_cookies.txt",
-});
-const audioStream = stream.stdout;
+  format: "bestaudio",
+};
 
-      const resource = createAudioResource(audioStream, {
+if (cookieFile) {
+  execOptions.cookies = cookieFile;
+}
+
+const streamProcess = youtubedl.exec(url, execOptions);
+const stream = streamProcess.stdout;
+
+      const resource = createAudioResource(stream, {
         inputType: "arbitrary",
         inlineVolume: false,
         metadata: {
