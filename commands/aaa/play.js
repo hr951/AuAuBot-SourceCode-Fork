@@ -22,8 +22,6 @@ function loadCookiePath() {
   }
 }
 
-const cookieFile = loadCookiePath();
-
 // グローバルな音楽キューとプレイヤー管理
 if (!global.musicQueues) {
   global.musicQueues = new Map();
@@ -47,6 +45,7 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    const cookieFile = loadCookiePath();
     try {
       console.log("コマンド実行開始");
 
