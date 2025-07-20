@@ -6,7 +6,7 @@ const {
   AudioPlayerStatus,
   VoiceConnectionStatus,
 } = require("@discordjs/voice");
-const youtubedl = require("youtube-dl-exec");
+const youtubedl = require("youtube-dl-exec").create("yt-dlp.exe");
 const { spawn } = require("child_process");
 const path = require("path");
 
@@ -221,7 +221,7 @@ module.exports = {
     }
 
     throw new Error(
-      `動画情報の取得に失敗しました (${maxRetries}回試行): ${lastError.message}`,
+      `動画情報の取得に失敗しました (${maxRetries}回試行): ${lastError}`,
     );
   },
 
@@ -237,7 +237,7 @@ module.exports = {
     const isPlaying =
       global.musicPlayers.has(guildId) &&
       global.musicPlayers.get(guildId).state.status ===
-        AudioPlayerStatus.Playing;
+      AudioPlayerStatus.Playing;
 
     // キューに追加
     queue.push(songInfo);
@@ -423,9 +423,8 @@ module.exports = {
       try {
         console.log(`ストリーム作成試行 ${attempt}/${maxRetries}`);
 
-        // 最小限のオプションでストリーミング
         let streamOptions = {
-          output: "-",
+          output: "-", // stdoutに出力
           noWarnings: true,
           ignoreErrors: true,
         };
@@ -441,13 +440,15 @@ module.exports = {
 
         const timeout = songInfo.isTikTok ? 25000 : 35000;
 
+        const process = youtubedl.exec(songInfo.url, streamOptions);
+
         return await Promise.race([
-          youtubedl.exec(songInfo.url, streamOptions),
+          new Promise((resolve, reject) => {
+            // 成功時に stdout（ストリーム）を渡す
+            resolve(process.stdout);
+          }),
           new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error("ストリーム作成タイムアウト")),
-              timeout,
-            ),
+            setTimeout(() => reject(new Error("ストリーム作成タイムアウト")), timeout)
           ),
         ]);
       } catch (error) {
@@ -461,5 +462,6 @@ module.exports = {
     }
 
     throw new Error(`ストリーム作成に失敗しました: ${lastError.message}`);
-  },
+  }
+
 };
