@@ -7,7 +7,13 @@ const path = require("node:path");
 const exclusionPath = "./exclusion_roles.json";
 const authPanel = require("./commands/aaa/auth-panel.js");
 const { Player } = require("discord-player");
-fs.writeFileSync("/tmp/youtube_cookies.txt", process.env.YT_COOKIE_BASE64, "base64");
+const cookieBase64 = process.env.YT_COOKIE_BASE64;
+const path = "/tmp/youtube_cookies.txt";
+
+if (cookieBase64 && !fs.existsSync(path)) {
+  fs.writeFileSync(path, Buffer.from(cookieBase64, "base64").toString("utf8"));
+  console.log("✅ Cookieファイルを書き出しました");
+}
 
 // スパム検知のための設定
 const SPAM_THRESHOLD_MESSAGES = 3; // 3メッセージ（テスト用に下げる）
