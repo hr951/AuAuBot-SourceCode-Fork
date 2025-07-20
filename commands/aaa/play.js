@@ -321,11 +321,8 @@ module.exports = {
       const execOptions = {
   output: "-",
   format: "bestaudio",
+        cookies: cookieFile,
 };
-
-if (cookieFile) {
-  execOptions.cookies = cookieFile;
-}
 
 const streamProcess = youtubedl.exec(url, execOptions);
 const stream = streamProcess.stdout;
