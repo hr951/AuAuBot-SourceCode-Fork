@@ -12,7 +12,7 @@ const path = require("path");
 const fs = require("node:fs");
 
 function loadCookiePath() {
-  const cookiePath = "/tmp/youtube_cookies.txt"; // Renderで使う場所
+  const cookiePath = "./youtube_cookies.txt"; // Renderで使う場所
   if (fs.existsSync(cookiePath)) {
     console.log("✅ Cookieファイルが見つかりました:", cookiePath);
     return cookiePath;
