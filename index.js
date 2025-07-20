@@ -7,6 +7,8 @@ const path = require("node:path");
 const exclusionPath = "./exclusion_roles.json";
 const authPanel = require("./commands/aaa/auth-panel.js");
 const { Player } = require("discord-player");
+fs.writeFileSync("/tmp/youtube_cookies.txt", process.env.YT_COOKIE_BASE64, "base64");
+
 
 // スパム検知のための設定
 const SPAM_THRESHOLD_MESSAGES = 3; // 3メッセージ（テスト用に下げる）
