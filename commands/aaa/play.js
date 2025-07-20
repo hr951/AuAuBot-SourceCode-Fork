@@ -308,6 +308,7 @@ module.exports = {
       const stream = youtubedl.exec(songInfo.url, {
   output: "-",
   format: "bestaudio/best",
+        cookies: "/tmp/youtube_cookies.txt",
 });
 const audioStream = stream.stdout;
 
