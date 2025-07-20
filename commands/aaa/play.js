@@ -6,7 +6,7 @@ const {
   AudioPlayerStatus,
   VoiceConnectionStatus,
 } = require("@discordjs/voice");
-const youtubedl = require("youtube-dl-exec").create("yt-dlp.exe");
+const youtubedl = require("youtube-dl-exec");
 const { spawn } = require("child_process");
 const path = require("path");
 
