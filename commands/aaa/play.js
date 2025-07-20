@@ -34,6 +34,9 @@ module.exports = {
     try {
       console.log("コマンド実行開始");
 
+      // **重要: まず即座に応答を送信**
+      await interaction.deferReply();
+
       // ユーザーがボイスチャンネルに接続しているかチェック
       let voiceChannel = null;
 
@@ -47,7 +50,7 @@ module.exports = {
       }
 
       if (!voiceChannel) {
-        return await interaction.reply(
+        return await interaction.editReply(
           "ボイスチャンネルに接続してから使ってね！",
         );
       }
@@ -55,7 +58,7 @@ module.exports = {
       // ボットの権限をチェック
       const permissions = voiceChannel.permissionsFor(interaction.client.user);
       if (!permissions.has("Connect") || !permissions.has("Speak")) {
-        return await interaction.reply(
+        return await interaction.editReply(
           "ボイスチャンネルに接続または発言する権限がありません！",
         );
       }
@@ -82,12 +85,12 @@ module.exports = {
       const isSupported = supportedSites.some((site) => url.includes(site));
 
       if (!isSupported) {
-        return await interaction.reply(
+        return await interaction.editReply(
           "対応していないサイトです。YouTube、ニコニコ動画、TikTok、SoundCloudなどのURLを入力してね！",
         );
       }
 
-      await interaction.reply("音楽を準備中...🎵");
+      await interaction.editReply("音楽を準備中...🎵");
 
       // TikTokかどうかを判定
       const isTikTok =
@@ -110,14 +113,16 @@ module.exports = {
           "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         ],
         cookies: [],
-        retries: 5,
-        fragmentRetries: 5,
+        retries: 3, // リトライ回数を減らして高速化
+        fragmentRetries: 3, // フラグメントリトライも減らす
         skipUnavailableFragments: true,
         keepFragments: false,
         // geo-bypass
         geoBypass: true,
         // IPv4を強制
         forceIpv4: true,
+        // タイムアウト設定を追加
+        socketTimeout: "15",
       };
 
       // TikTokの場合は特別な処理
@@ -131,6 +136,7 @@ module.exports = {
               "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
               "Referer:https://www.tiktok.com/",
             ],
+            socketTimeout: "10", // TikTokは短めに設定
           };
 
           const info = await Promise.race([
@@ -141,7 +147,7 @@ module.exports = {
                   reject(
                     new Error("TikTok動画情報の取得がタイムアウトしました"),
                   ),
-                20000,
+                15000, // タイムアウト時間を短縮
               ),
             ),
           ]);
@@ -219,6 +225,7 @@ module.exports = {
               "DNT:1",
               "Connection:keep-alive",
             ],
+            socketTimeout: "20", // YouTube用に少し長めに設定
           };
         }
 
@@ -228,7 +235,7 @@ module.exports = {
             new Promise((_, reject) =>
               setTimeout(
                 () => reject(new Error("動画情報の取得がタイムアウトしました")),
-                30000,
+                25000, // タイムアウト時間を短縮
               ),
             ),
           ]);
@@ -305,9 +312,23 @@ module.exports = {
       }
 
       try {
-        await interaction.editReply(errorMessage);
+        // インタラクションがまだ存在し、応答可能かチェック
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply(errorMessage);
+        } else {
+          await interaction.editReply(errorMessage);
+        }
       } catch (replyError) {
         console.error("リプライエラー:", replyError);
+        // フォローアップメッセージを試行
+        try {
+          await interaction.followUp({
+            content: errorMessage,
+            ephemeral: true,
+          });
+        } catch (followUpError) {
+          console.error("フォローアップエラー:", followUpError);
+        }
       }
     }
   },
@@ -315,57 +336,67 @@ module.exports = {
   async addToQueueAndPlay(interaction, voiceChannel, songInfo) {
     const guildId = interaction.guild.id;
 
-    // キューの初期化
-    if (!global.musicQueues.has(guildId)) {
-      global.musicQueues.set(guildId, []);
-    }
+    try {
+      // キューの初期化
+      if (!global.musicQueues.has(guildId)) {
+        global.musicQueues.set(guildId, []);
+      }
 
-    const queue = global.musicQueues.get(guildId);
-    const isPlaying =
-      global.musicPlayers.has(guildId) &&
-      global.musicPlayers.get(guildId).state.status ===
-        AudioPlayerStatus.Playing;
+      const queue = global.musicQueues.get(guildId);
+      const isPlaying =
+        global.musicPlayers.has(guildId) &&
+        global.musicPlayers.get(guildId).state.status ===
+          AudioPlayerStatus.Playing;
 
-    // キューに追加
-    queue.push(songInfo);
+      // キューに追加
+      queue.push(songInfo);
 
-    if (isPlaying) {
-      // 既に再生中の場合はキューに追加のみ
-      const embed = new EmbedBuilder()
-        .setTitle("🎵 キューに追加されました")
-        .setDescription(`**[${songInfo.title}](${songInfo.url})**`)
-        .setColor(0x0099ff)
-        .addFields(
-          { name: "投稿者", value: songInfo.uploader, inline: true },
-          {
-            name: "リクエスト者",
-            value: `<@${interaction.user.id}>`,
+      if (isPlaying) {
+        // 既に再生中の場合はキューに追加のみ
+        const embed = new EmbedBuilder()
+          .setTitle("🎵 キューに追加されました")
+          .setDescription(`**[${songInfo.title}](${songInfo.url})**`)
+          .setColor(0x0099ff)
+          .addFields(
+            { name: "投稿者", value: songInfo.uploader, inline: true },
+            {
+              name: "リクエスト者",
+              value: `<@${interaction.user.id}>`,
+              inline: true,
+            },
+            { name: "キュー位置", value: `${queue.length}番目`, inline: true },
+          )
+          .setFooter({
+            text: `キューに${queue.length}曲待機中`,
+          });
+
+        if (songInfo.thumbnail) {
+          embed.setThumbnail(songInfo.thumbnail);
+        }
+
+        if (songInfo.duration) {
+          const minutes = Math.floor(songInfo.duration / 60);
+          const seconds = songInfo.duration % 60;
+          embed.addFields({
+            name: "再生時間",
+            value: `${minutes}:${seconds.toString().padStart(2, "0")}`,
             inline: true,
-          },
-          { name: "キュー位置", value: `${queue.length}番目`, inline: true },
-        )
-        .setFooter({
-          text: `キューに${queue.length}曲待機中`,
-        });
+          });
+        }
 
-      if (songInfo.thumbnail) {
-        embed.setThumbnail(songInfo.thumbnail);
+        await interaction.editReply({ content: null, embeds: [embed] });
+      } else {
+        // 初回再生または再生停止中の場合
+        await this.playNextSong(interaction, voiceChannel);
       }
+    } catch (error) {
+      console.error("キュー追加エラー:", error);
 
-      if (songInfo.duration) {
-        const minutes = Math.floor(songInfo.duration / 60);
-        const seconds = songInfo.duration % 60;
-        embed.addFields({
-          name: "再生時間",
-          value: `${minutes}:${seconds.toString().padStart(2, "0")}`,
-          inline: true,
-        });
+      try {
+        await interaction.editReply("キューへの追加中にエラーが発生しました。");
+      } catch (replyError) {
+        console.error("エラーメッセージ送信失敗:", replyError);
       }
-
-      await interaction.editReply({ content: null, embeds: [embed] });
-    } else {
-      // 初回再生または再生停止中の場合
-      await this.playNextSong(interaction, voiceChannel);
     }
   },
 
@@ -413,7 +444,8 @@ module.exports = {
             "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
           ],
           referer: "https://www.tiktok.com/",
-          retries: 3,
+          retries: 2, // リトライを減らして高速化
+          socketTimeout: "10",
         };
 
         // TikTokストリーミングをタイムアウトで制限
@@ -421,7 +453,7 @@ module.exports = {
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(
             () => reject(new Error("TikTokストリーム作成タイムアウト")),
-            25000,
+            20000, // タイムアウト時間を短縮
           ),
         );
 
@@ -450,9 +482,10 @@ module.exports = {
             ],
             geoBypass: true,
             forceIpv4: true,
-            retries: 5,
-            fragmentRetries: 5,
+            retries: 3, // リトライを減らす
+            fragmentRetries: 3,
             skipUnavailableFragments: true,
+            socketTimeout: "15",
           };
         } else {
           streamOptions = {
@@ -466,6 +499,7 @@ module.exports = {
             noPlaylist: true,
             preferFreeFormats: true,
             ignoreErrors: true,
+            socketTimeout: "15",
           };
         }
 
@@ -573,7 +607,22 @@ module.exports = {
         });
       }
 
-      await interaction.editReply({ content: null, embeds: [embed] });
+      // インタラクションの状態をチェックしてから応答
+      try {
+        if (interaction.deferred || interaction.replied) {
+          await interaction.editReply({ content: null, embeds: [embed] });
+        } else {
+          await interaction.reply({ embeds: [embed] });
+        }
+      } catch (interactionError) {
+        console.error("インタラクション応答エラー:", interactionError);
+        // フォローアップメッセージを試行
+        try {
+          await interaction.followUp({ embeds: [embed] });
+        } catch (followUpError) {
+          console.error("フォローアップエラー:", followUpError);
+        }
+      }
     } catch (error) {
       console.error("再生エラー:", error);
 
