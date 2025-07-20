@@ -305,9 +305,13 @@ module.exports = {
       }
 
       // 修正: より安全なストリーミング方式
-      const stream = await this.createAudioStream(songInfo);
+      const stream = youtubedl.exec(songInfo.url, {
+  output: "-",
+  format: "bestaudio/best",
+});
+const audioStream = stream.stdout;
 
-      const resource = createAudioResource(stream, {
+      const resource = createAudioResource(audioStream, {
         inputType: "arbitrary",
         inlineVolume: false,
         metadata: {
