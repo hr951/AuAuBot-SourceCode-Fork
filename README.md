@@ -32,5 +32,7 @@ https://copilot.microsoft.com/
 ~~すべてAIのせいなので~~どうかご容赦ください
 
 ~~ちなみに、導入リンクは[コ↑コ↓](https://auaubot.rec877.com)~~
+
 現在は~~やる気がないため~~サイトの公開ができておりません。
+
 [コ↑コ↓](https://discord.com/oauth2/authorize?client_id=1389401699529265212)から、どうぞ。
