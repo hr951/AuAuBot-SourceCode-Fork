@@ -9,6 +9,7 @@ const {
 const youtubedl = require("youtube-dl-exec");
 const { spawn } = require("child_process");
 const path = require("path");
+const fs = require("node:fs");
 
 function loadCookiePath() {
   const cookiePath = "/tmp/youtube_cookies.txt"; // Renderで使う場所
